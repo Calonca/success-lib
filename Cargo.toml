@@ -1,8 +1,8 @@
 [package]
-name = "notelib"
+name = "successlib"
 version = "0.1.0"
 edition = "2021"
-description = "Core library for goals, notes and session management"
+description = "Core library for achieving goals, handles focus sessions, notes and sync"
 
 [dependencies]
 anyhow = "1.0"
