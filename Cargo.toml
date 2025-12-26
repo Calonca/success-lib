@@ -2,7 +2,7 @@
 name = "notelib"
 version = "0.1.0"
 edition = "2021"
-description = "Core library for NotNot note and session management"
+description = "Core library for goals, notes and session management"
 
 [dependencies]
 anyhow = "1.0"
