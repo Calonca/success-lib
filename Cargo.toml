@@ -4,9 +4,25 @@ version = "0.1.0"
 edition = "2021"
 description = "Core library for achieving goals, handles focus sessions, notes and sync"
 
+[lib]
+name = "successlib"
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 fuzzy-matcher = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+serde_json = "1.0"
+thiserror = "2.0"
+uniffi = { version = "0.30.0", features = ["cli"] }
+uniffi_bindgen = "0.30.0"
+
+[build-dependencies]
+uniffi = { version = "0.30.0", features = ["build"] }
+
+[[bin]]
+# This can be whatever name makes sense for your project, but the rest of this tutorial assumes uniffi-bindgen.
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
