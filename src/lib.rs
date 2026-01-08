@@ -1,7 +1,19 @@
+//! FFI bindings for the Success note-taking app.
+//!
+//! This crate exposes a small, focused set of functions for listing and
+//! manipulating goals, notes, and sessions. The functions are exported via
+//! `uniffi` for use by language bindings.
 mod ffi_types;
+
+// Hide internal module pages from the crate-level docs; the re-exported
+// items are still visible at the crate root and will appear in the docs.
+#[doc(hidden)]
 pub mod goals;
+#[doc(hidden)]
 pub mod notes;
+#[doc(hidden)]
 pub mod session_graph;
+#[doc(hidden)]
 pub mod types;
 
 use chrono::{NaiveDate, TimeZone, Utc};
@@ -18,6 +30,12 @@ pub use types::{Goal, GoalStatus, Session, SessionKind};
 
 uniffi::setup_scaffolding!();
 
+/// List goals stored in the archive at `archive_path`.
+///
+/// - `archive_path`: path to the archive directory.
+/// - `statuses`: optional filter to restrict returned goals by `GoalStatus`.
+///
+/// Returns `Ok(Vec<Goal>)` on success or an `AppError` on failure.
 #[uniffi::export]
 pub fn list_goals_api(
     archive_path: String,
@@ -26,11 +44,21 @@ pub fn list_goals_api(
     Ok(list_goals(Path::new(&archive_path), statuses.as_deref())?)
 }
 
+/// Return goals that are currently trashed
+///
+/// Returns `Ok(Vec<Goal>)` on success or an `AppError` on failure.
 #[uniffi::export]
-pub fn listtrash_api(archive_path: String) -> Result<Vec<Goal>, AppError> {
+pub fn list_trash_api(archive_path: String) -> Result<Vec<Goal>, AppError> {
     Ok(list_trash(Path::new(&archive_path))?)
 }
 
+/// Search goals by `query` in the archive at `archive_path`.
+///
+/// - `query`: text to search for in goal names/metadata.
+/// - `is_reward`: optional filter limiting results to reward/non-reward goals.
+/// - `statuses`: optional list of `GoalStatus` values to include. defaults to TODO, DOING
+///
+/// Returns matching goals or an `AppError` on failure.
 #[uniffi::export]
 pub fn search_goals_api(
     archive_path: String,
@@ -46,6 +74,13 @@ pub fn search_goals_api(
     )?)
 }
 
+/// Add a new goal
+///
+/// - `name`: the goal name.
+/// - `is_reward`: whether this goal is considered a reward.
+/// - `commands`: associated commands for the goal.
+///
+/// Returns the created `Goal` or an `AppError` on failure.
 #[uniffi::export]
 pub fn add_goal_api(
     archive_path: String,
@@ -61,11 +96,17 @@ pub fn add_goal_api(
     )?)
 }
 
+/// Retrieve the note content for the goal identified by `goal_id`.
+///
+/// Returns the note text as `String` or an `AppError` if retrieval fails.
 #[uniffi::export]
 pub fn get_note_api(archive_path: String, goal_id: u64) -> Result<String, AppError> {
     Ok(get_note(Path::new(&archive_path), goal_id)?)
 }
 
+/// Replace the note content for the goal `goal_id` with `content`.
+///
+/// Returns `Ok(true)` on success or an `AppError` on failure.
 #[uniffi::export]
 pub fn edit_note_api(
     archive_path: String,
@@ -76,8 +117,11 @@ pub fn edit_note_api(
     Ok(true)
 }
 
+/// Update the `status` of the goal identified by `goal_id`.
+///
+/// Returns the updated `Goal` on success or an `AppError` on failure.
 #[uniffi::export]
-pub fn setgoalstatus_api(
+pub fn set_goalstatus_api(
     archive_path: String,
     goal_id: u64,
     status: GoalStatus,
@@ -85,8 +129,13 @@ pub fn setgoalstatus_api(
     Ok(set_goal_status(Path::new(&archive_path), goal_id, status)?)
 }
 
+/// Mark a goal as trashed or untrashed.
+///
+/// - `trashed`: `true` to move the goal to trash, `false` to restore it.
+///
+/// Returns the updated `Goal` or an `AppError` on failure.
 #[uniffi::export]
-pub fn setgoaltrashed_api(
+pub fn set_goal_trashed_api(
     archive_path: String,
     goal_id: u64,
     trashed: bool,
@@ -98,6 +147,13 @@ pub fn setgoaltrashed_api(
     )?)
 }
 
+/// Add a session for the specified goal and return a `SessionView`.
+///
+/// - `start_ts_secs`: Unix timestamp (seconds) for session start.
+/// - `duration_secs`: duration of the session in seconds.
+/// - `is_reward`: whether the session is tied to a reward goal.
+///
+/// Returns the created `SessionView` or an `AppError` on failure.
 #[uniffi::export]
 pub fn add_session_api(
     archive_path: String,
@@ -123,6 +179,11 @@ pub fn add_session_api(
     .map(SessionView::from)?)
 }
 
+/// List sessions that occurred on the given ISO date (YYYY-MM-DD).
+///
+/// - `date_iso`: date in `YYYY-MM-DD` format.
+///
+/// Returns a vector of `SessionView` or an `AppError` on failure.
 #[uniffi::export]
 pub fn list_day_sessions_api(
     archive_path: String,
