@@ -8,8 +8,9 @@ use chrono::{
     DateTime, Duration as ChronoDuration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc,
 };
 
+use crate::goals::set_goal_status;
 use crate::notes::notes_path;
-use crate::types::{Session, SessionKind};
+use crate::types::{GoalStatus, Session, SessionKind};
 
 pub fn ensure_archive_structure(archive: &Path) -> Result<()> {
     fs::create_dir_all(archive)?;
@@ -74,6 +75,12 @@ pub fn add_session(
         start_at,
         end_at,
     };
+
+    if !is_reward {
+        if let Err(err) = set_goal_status(archive, goal_id, GoalStatus::DOING) {
+            eprintln!("Failed to update goal status to DOING: {err}");
+        }
+    }
 
     nodes.push(node.clone());
     save_day_sessions(archive, &nodes, day)?;

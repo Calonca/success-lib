@@ -7,6 +7,19 @@ pub enum SessionKind {
     Reward,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+pub enum GoalStatus {
+    TODO,
+    DOING,
+    DONE,
+}
+
+impl Default for GoalStatus {
+    fn default() -> Self {
+        GoalStatus::TODO
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct Goal {
     pub id: u64,
@@ -15,6 +28,10 @@ pub struct Goal {
     pub is_reward: bool,
     #[serde(default)]
     pub commands: Vec<String>,
+    #[serde(default)]
+    pub status: GoalStatus,
+    #[serde(default)]
+    pub trashed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

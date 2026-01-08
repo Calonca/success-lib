@@ -9,16 +9,26 @@ use std::path::Path;
 
 use ffi_types::{AppError, SessionView};
 
-pub use goals::{add_goal, list_goals, search_goals};
+pub use goals::{
+    add_goal, list_goals, list_trash, search_goals, set_goal_status, set_goal_trashed,
+};
 pub use notes::{edit_note, get_note};
 pub use session_graph::{add_session, get_formatted_session_time_range, list_day_sessions};
-pub use types::{Goal, Session, SessionKind};
+pub use types::{Goal, GoalStatus, Session, SessionKind};
 
 uniffi::setup_scaffolding!();
 
 #[uniffi::export]
-pub fn list_goals_api(archive_path: String) -> Result<Vec<Goal>, AppError> {
-    Ok(list_goals(Path::new(&archive_path))?)
+pub fn list_goals_api(
+    archive_path: String,
+    statuses: Option<Vec<GoalStatus>>,
+) -> Result<Vec<Goal>, AppError> {
+    Ok(list_goals(Path::new(&archive_path), statuses.as_deref())?)
+}
+
+#[uniffi::export]
+pub fn listtrash_api(archive_path: String) -> Result<Vec<Goal>, AppError> {
+    Ok(list_trash(Path::new(&archive_path))?)
 }
 
 #[uniffi::export]
@@ -26,8 +36,14 @@ pub fn search_goals_api(
     archive_path: String,
     query: String,
     is_reward: Option<bool>,
+    statuses: Option<Vec<GoalStatus>>,
 ) -> Result<Vec<Goal>, AppError> {
-    Ok(search_goals(Path::new(&archive_path), &query, is_reward)?)
+    Ok(search_goals(
+        Path::new(&archive_path),
+        &query,
+        is_reward,
+        statuses.as_deref(),
+    )?)
 }
 
 #[uniffi::export]
@@ -58,6 +74,28 @@ pub fn edit_note_api(
 ) -> Result<bool, AppError> {
     edit_note(Path::new(&archive_path), goal_id, &content)?;
     Ok(true)
+}
+
+#[uniffi::export]
+pub fn setgoalstatus_api(
+    archive_path: String,
+    goal_id: u64,
+    status: GoalStatus,
+) -> Result<Goal, AppError> {
+    Ok(set_goal_status(Path::new(&archive_path), goal_id, status)?)
+}
+
+#[uniffi::export]
+pub fn setgoaltrashed_api(
+    archive_path: String,
+    goal_id: u64,
+    trashed: bool,
+) -> Result<Goal, AppError> {
+    Ok(set_goal_trashed(
+        Path::new(&archive_path),
+        goal_id,
+        trashed,
+    )?)
 }
 
 #[uniffi::export]
