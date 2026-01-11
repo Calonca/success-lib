@@ -21,6 +21,11 @@ pub fn edit_note(archive: &Path, goal_id: u64, content: &str) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    fs::write(path, content)?;
+    let content_with_newline = if content.ends_with('\n') {
+        content.to_string()
+    } else {
+        format!("{}\n", content)
+    };
+    fs::write(path, content_with_newline)?;
     Ok(())
 }
