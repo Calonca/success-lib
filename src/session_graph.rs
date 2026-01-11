@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -9,7 +8,6 @@ use chrono::{
 };
 
 use crate::goals::set_goal_status;
-use crate::notes::notes_path;
 use crate::types::{GoalStatus, Session, SessionKind};
 
 pub fn ensure_archive_structure(archive: &Path) -> Result<()> {
@@ -26,26 +24,6 @@ pub fn get_formatted_session_time_range(node: &Session) -> String {
     let start = node.start_at.with_timezone(&Local).format("%H:%M");
     let end = node.end_at.with_timezone(&Local).format("%H:%M");
     format!("{start}-{end}")
-}
-
-pub fn append_session_header(
-    archive: &Path,
-    goal_id: u64,
-    start_at: DateTime<Utc>,
-    end_at: DateTime<Utc>,
-) -> Result<()> {
-    let path = notes_path(archive, goal_id);
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let start_local = start_at.with_timezone(&Local);
-    let end_local = end_at.with_timezone(&Local);
-    let start_stamp = start_local.format("%Y-%m-%d %H:%M");
-    let end_stamp = end_local.format("%H:%M");
-    let header = format!("---\n{start_stamp} - {end_stamp}\n");
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    file.write_all(header.as_bytes())?;
-    Ok(())
 }
 
 pub fn add_session(
@@ -84,9 +62,6 @@ pub fn add_session(
 
     nodes.push(node.clone());
     save_day_sessions(archive, &nodes, day)?;
-    if let Err(e) = append_session_header(archive, goal_id, start_at, end_at) {
-        eprintln!("Failed to append session header: {e}");
-    }
     Ok(node)
 }
 
