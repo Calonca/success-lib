@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -5,6 +6,7 @@ use anyhow::{anyhow, Result};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
+use crate::session_graph::list_sessions_between_dates;
 use crate::types::{Goal, GoalStatus};
 
 const DEFAULT_VISIBLE_STATUSES: [GoalStatus; 2] = [GoalStatus::TODO, GoalStatus::DOING];
@@ -120,10 +122,28 @@ pub fn search_goals(
     query: &str,
     is_reward: Option<bool>,
     statuses: Option<&[GoalStatus]>,
+    sort_by_recent: bool,
 ) -> Result<Vec<Goal>> {
     let goals = list_goals(archive, statuses)?;
     let matcher = SkimMatcherV2::default();
     let trimmed = query.trim();
+
+    let recent_sessions = if sort_by_recent {
+        list_sessions_between_dates(archive, None, None).unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    let mut last_active = HashMap::new();
+    if sort_by_recent {
+        for session in recent_sessions {
+            let entry = last_active.entry(session.goal_id).or_insert(0);
+            let ts = session.start_at.timestamp();
+            if ts > *entry {
+                *entry = ts;
+            }
+        }
+    }
 
     let mut scored: Vec<(i64, Goal)> = goals
         .into_iter()
@@ -140,6 +160,23 @@ pub fn search_goals(
         })
         .collect();
 
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by(|(score_a, goal_a), (score_b, goal_b)| {
+        if sort_by_recent {
+            let active_a = last_active.get(&goal_a.id);
+            let active_b = last_active.get(&goal_b.id);
+            match (active_a, active_b) {
+                (Some(ts_a), Some(ts_b)) => {
+                    let cmp = ts_b.cmp(ts_a);
+                    if cmp != std::cmp::Ordering::Equal {
+                        return cmp;
+                    }
+                }
+                (Some(_), None) => return std::cmp::Ordering::Less,
+                (None, Some(_)) => return std::cmp::Ordering::Greater,
+                _ => {}
+            }
+        }
+        score_b.cmp(score_a)
+    });
     Ok(scored.into_iter().map(|(_, g)| g).collect())
 }

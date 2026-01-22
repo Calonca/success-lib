@@ -75,6 +75,38 @@ pub fn list_day_sessions(archive: &Path, date: NaiveDate) -> Result<Vec<Session>
     Ok(vec![])
 }
 
+pub fn list_sessions_between_dates(
+    archive: &Path,
+    start_date_iso: Option<&str>,
+    end_date_iso: Option<&str>,
+) -> Result<Vec<Session>> {
+    let end_date = if let Some(iso) = end_date_iso {
+        NaiveDate::parse_from_str(iso, "%Y-%m-%d")
+            .map_err(|e| anyhow::anyhow!("invalid end date: {e}"))?
+    } else {
+        Local::now().date_naive()
+    };
+
+    let start_date = if let Some(iso) = start_date_iso {
+        NaiveDate::parse_from_str(iso, "%Y-%m-%d")
+            .map_err(|e| anyhow::anyhow!("invalid start date: {e}"))?
+    } else {
+        end_date - ChronoDuration::days(7)
+    };
+
+    let mut sessions = Vec::new();
+    let mut current = start_date;
+    while current <= end_date {
+        let day_sessions = list_day_sessions(archive, current).unwrap_or_default();
+        sessions.extend(day_sessions);
+        current += ChronoDuration::days(1);
+    }
+
+    sessions.sort_by_key(|s| s.start_at);
+
+    Ok(sessions)
+}
+
 pub fn save_day_sessions(archive: &Path, nodes: &[Session], date: NaiveDate) -> Result<()> {
     fs::create_dir_all(archive.join("graphs"))?;
     let mut sorted = nodes.to_vec();

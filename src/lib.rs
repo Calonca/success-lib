@@ -25,7 +25,9 @@ pub use goals::{
     add_goal, list_goals, list_trash, search_goals, set_goal_status, set_goal_trashed,
 };
 pub use notes::{edit_note, get_note};
-pub use session_graph::{add_session, get_formatted_session_time_range, list_day_sessions};
+pub use session_graph::{
+    add_session, get_formatted_session_time_range, list_day_sessions, list_sessions_between_dates,
+};
 pub use types::{Goal, GoalStatus, Session, SessionKind};
 
 uniffi::setup_scaffolding!();
@@ -57,6 +59,7 @@ pub fn list_trash_api(archive_path: String) -> Result<Vec<Goal>, AppError> {
 /// - `query`: text to search for in goal names/metadata.
 /// - `is_reward`: optional filter limiting results to reward/non-reward goals.
 /// - `statuses`: optional list of `GoalStatus` values to include. defaults to TODO, DOING
+/// - `sort_by_recent`: optional bool, defaults to true.
 ///
 /// Returns matching goals or an `AppError` on failure.
 #[uniffi::export]
@@ -65,12 +68,14 @@ pub fn search_goals_api(
     query: String,
     is_reward: Option<bool>,
     statuses: Option<Vec<GoalStatus>>,
+    sort_by_recent: Option<bool>,
 ) -> Result<Vec<Goal>, AppError> {
     Ok(search_goals(
         Path::new(&archive_path),
         &query,
         is_reward,
         statuses.as_deref(),
+        sort_by_recent.unwrap_or(true),
     )?)
 }
 
@@ -193,5 +198,25 @@ pub fn list_day_sessions_api(
         .map_err(|e| anyhow::anyhow!("date_iso must be YYYY-MM-DD: {e}"))?;
 
     let sessions = list_day_sessions(Path::new(&archive_path), date)?;
+    Ok(sessions.into_iter().map(SessionView::from).collect())
+}
+
+/// List sessions between two dates (inclusive).
+///
+/// - `start_date_iso`: optional start date in `YYYY-MM-DD` format (defaults to 7 days ago).
+/// - `end_date_iso`: optional end date in `YYYY-MM-DD` format (defaults to today).
+///
+/// Returns a vector of `SessionView` or an `AppError` on failure.
+#[uniffi::export]
+pub fn list_sessions_between_dates_api(
+    archive_path: String,
+    start_date_iso: Option<String>,
+    end_date_iso: Option<String>,
+) -> Result<Vec<SessionView>, AppError> {
+    let sessions = list_sessions_between_dates(
+        Path::new(&archive_path),
+        start_date_iso.as_deref(),
+        end_date_iso.as_deref(),
+    )?;
     Ok(sessions.into_iter().map(SessionView::from).collect())
 }
