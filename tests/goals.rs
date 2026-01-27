@@ -45,11 +45,11 @@ fn search_goals_respects_status_filter() -> Result<()> {
     set_goal_status(archive, g1.id, GoalStatus::DONE)?;
     set_goal_status(archive, g2.id, GoalStatus::DOING)?;
 
-    let default_results = search_goals(archive, "", None, None)?;
+    let default_results = search_goals(archive, "", None, None, false)?;
     assert_eq!(default_results.len(), 1);
     assert_eq!(default_results[0].id, g2.id);
 
-    let done_results = search_goals(archive, "arch", None, Some(&[GoalStatus::DONE]))?;
+    let done_results = search_goals(archive, "arch", None, Some(&[GoalStatus::DONE]), false)?;
     assert_eq!(done_results.len(), 1);
     assert_eq!(done_results[0].id, g1.id);
 
@@ -89,8 +89,26 @@ fn trashed_goals_are_hidden_and_listtrash_works() -> Result<()> {
     assert_eq!(trashed_items.len(), 1);
     assert_eq!(trashed_items[0].id, trashed.id);
 
-    let search_trashed = search_goals(archive, "Old", None, None)?;
+    let search_trashed = search_goals(archive, "Old", None, None, false)?;
     assert!(search_trashed.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn reward_session_parsing_preserves_goal_id() -> Result<()> {
+    let temp = temp_archive();
+    let archive = temp.path();
+
+    let reward = add_goal(archive, "Ice Cream", true, vec![])?;
+    let now = Utc::now();
+    add_session(archive, reward.id, &reward.name, now, 300, true)?;
+
+    let sessions =
+        successlib::list_day_sessions(archive, now.with_timezone(&chrono::Local).date_naive())?;
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].goal_id, reward.id);
+    assert!(matches!(sessions[0].kind, successlib::SessionKind::Reward));
 
     Ok(())
 }
