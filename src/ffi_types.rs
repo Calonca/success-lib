@@ -21,6 +21,7 @@ pub struct SessionView {
     pub name: String,
     pub goal_id: u64,
     pub kind: SessionKind,
+    pub quantity: Option<u32>,
     pub start_at: i64,
     pub end_at: i64,
 }
@@ -32,6 +33,7 @@ impl From<Session> for SessionView {
             name: value.name,
             goal_id: value.goal_id,
             kind: value.kind,
+            quantity: value.quantity,
             start_at: value.start_at.timestamp(),
             end_at: value.end_at.timestamp(),
         }

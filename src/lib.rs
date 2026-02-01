@@ -92,12 +92,14 @@ pub fn add_goal_api(
     name: String,
     is_reward: bool,
     commands: Vec<String>,
+    quantity_name: Option<String>,
 ) -> Result<Goal, AppError> {
     Ok(add_goal(
         Path::new(&archive_path),
         &name,
         is_reward,
         commands,
+        quantity_name,
     )?)
 }
 
@@ -167,6 +169,7 @@ pub fn add_session_api(
     start_ts_secs: i64,
     duration_secs: u32,
     is_reward: bool,
+    quantity: Option<u32>,
 ) -> Result<SessionView, AppError> {
     let start_at = Utc
         .timestamp_opt(start_ts_secs, 0)
@@ -180,6 +183,7 @@ pub fn add_session_api(
         start_at,
         duration_secs,
         is_reward,
+        quantity,
     )
     .map(SessionView::from)?)
 }

@@ -15,8 +15,8 @@ fn list_goals_filters_by_status() -> Result<()> {
     let temp = temp_archive();
     let archive = temp.path();
 
-    let g1 = add_goal(archive, "Goal 1", false, vec![])?;
-    let g2 = add_goal(archive, "Goal 2", false, vec![])?;
+    let g1 = add_goal(archive, "Goal 1", false, vec![], None)?;
+    let g2 = add_goal(archive, "Goal 2", false, vec![], None)?;
     set_goal_status(archive, g1.id, GoalStatus::DONE)?;
 
     let default_visible = list_goals(archive, None)?;
@@ -40,8 +40,8 @@ fn search_goals_respects_status_filter() -> Result<()> {
     let temp = temp_archive();
     let archive = temp.path();
 
-    let g1 = add_goal(archive, "Archive Docs", false, vec![])?;
-    let g2 = add_goal(archive, "Build Prototype", false, vec![])?;
+    let g1 = add_goal(archive, "Archive Docs", false, vec![], None)?;
+    let g2 = add_goal(archive, "Build Prototype", false, vec![], None)?;
     set_goal_status(archive, g1.id, GoalStatus::DONE)?;
     set_goal_status(archive, g2.id, GoalStatus::DOING)?;
 
@@ -61,8 +61,8 @@ fn adding_session_moves_goal_to_doing() -> Result<()> {
     let temp = temp_archive();
     let archive = temp.path();
 
-    let goal = add_goal(archive, "Practice guitar", false, vec![])?;
-    add_session(archive, goal.id, &goal.name, Utc::now(), 600, false)?;
+    let goal = add_goal(archive, "Practice guitar", false, vec![], None)?;
+    add_session(archive, goal.id, &goal.name, Utc::now(), 600, false, None)?;
 
     let goals = list_goals(archive, Some(&[GoalStatus::DOING]))?;
     assert_eq!(goals.len(), 1);
@@ -77,8 +77,8 @@ fn trashed_goals_are_hidden_and_listtrash_works() -> Result<()> {
     let temp = temp_archive();
     let archive = temp.path();
 
-    let trashed = add_goal(archive, "Old goal", false, vec![])?;
-    let active = add_goal(archive, "New goal", false, vec![])?;
+    let trashed = add_goal(archive, "Old goal", false, vec![], None)?;
+    let active = add_goal(archive, "New goal", false, vec![], None)?;
     set_goal_trashed(archive, trashed.id, true)?;
 
     let visible = list_goals(archive, None)?;
@@ -100,9 +100,9 @@ fn reward_session_parsing_preserves_goal_id() -> Result<()> {
     let temp = temp_archive();
     let archive = temp.path();
 
-    let reward = add_goal(archive, "Ice Cream", true, vec![])?;
+    let reward = add_goal(archive, "Ice Cream", true, vec![], None)?;
     let now = Utc::now();
-    add_session(archive, reward.id, &reward.name, now, 300, true)?;
+    add_session(archive, reward.id, &reward.name, now, 300, true, None)?;
 
     let sessions =
         successlib::list_day_sessions(archive, now.with_timezone(&chrono::Local).date_naive())?;

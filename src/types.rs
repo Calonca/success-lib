@@ -55,6 +55,8 @@ pub struct Goal {
     pub status: GoalStatus,
     #[serde(default)]
     pub trashed: bool,
+    #[serde(default)]
+    pub quantity_name: Option<String>,
 }
 
 /// A recorded session entry.
@@ -70,6 +72,8 @@ pub struct Session {
     pub name: String,
     pub goal_id: u64,
     pub kind: SessionKind,
+    #[serde(default)]
+    pub quantity: Option<u32>,
     #[serde(default = "utc_now_ts", with = "chrono::serde::ts_seconds")]
     pub start_at: DateTime<Utc>,
     #[serde(default = "utc_now_ts", with = "chrono::serde::ts_seconds")]
