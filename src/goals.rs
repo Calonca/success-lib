@@ -63,6 +63,7 @@ pub fn add_goal(
     name: &str,
     is_reward: bool,
     commands: Vec<String>,
+    quantity_name: Option<String>,
 ) -> Result<Goal> {
     let mut goals = read_goals(archive)?;
     let id = next_goal_id(&goals);
@@ -73,6 +74,7 @@ pub fn add_goal(
         commands,
         status: GoalStatus::TODO,
         trashed: false,
+        quantity_name,
     };
     goals.push(goal.clone());
 

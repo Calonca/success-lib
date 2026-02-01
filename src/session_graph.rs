@@ -33,6 +33,7 @@ pub fn add_session(
     start_at: DateTime<Utc>,
     duration_secs: u32,
     is_reward: bool,
+    quantity: Option<u32>,
 ) -> Result<Session> {
     ensure_archive_structure(archive)?;
     let day = start_at.with_timezone(&Local).date_naive();
@@ -50,6 +51,7 @@ pub fn add_session(
         name: goal_name.to_string(),
         goal_id,
         kind,
+        quantity,
         start_at,
         end_at,
     };
@@ -184,7 +186,7 @@ fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>> {
     let mut cursor = start;
     while let Some(id) = cursor {
         if let Some(label) = labels.get(&id) {
-            let (name, goal_id, explicit_time) = split_label(label, date);
+            let (name, goal_id, quantity, explicit_time) = split_label(label, date);
             let clean_id = sanitize_id(&id);
             let kind = if clean_id.starts_with("rew_") {
                 SessionKind::Reward
@@ -198,6 +200,7 @@ fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>> {
                     name,
                     goal_id,
                     kind,
+                    quantity,
                     start_at,
                     end_at,
                 });
@@ -211,7 +214,12 @@ fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>> {
 fn split_label(
     label: &str,
     date: NaiveDate,
-) -> (String, u64, Option<(DateTime<Utc>, DateTime<Utc>)>) {
+) -> (
+    String,
+    u64,
+    Option<u32>,
+    Option<(DateTime<Utc>, DateTime<Utc>)>,
+) {
     let (without_time, time_range) = match label.rsplit_once('[') {
         Some((head, tail)) => (
             head.trim(),
@@ -220,24 +228,41 @@ fn split_label(
         None => (label.trim(), None),
     };
 
-    let name_with_id = without_time.trim();
-
     let mut goal_id = 0;
-    let mut name = name_with_id.to_string();
-    if let Some((name_only, id_part)) = name_with_id.rsplit_once("[id") {
-        let parsed_id = id_part
-            .trim_end_matches(']')
-            .trim()
-            .trim_start_matches(|c: char| c == ':' || c.is_whitespace())
-            .parse::<u64>()
-            .ok();
-        if let Some(id_val) = parsed_id {
-            goal_id = id_val;
-            name = name_only.trim().to_string();
+    let mut quantity = None;
+    let mut name = without_time.trim().to_string();
+
+    loop {
+        let Some((head, tail)) = name.rsplit_once('[') else {
+            break;
+        };
+        let tag = tail.trim_end_matches(']').trim();
+        if let Some(id_tail) = tag.strip_prefix("id") {
+            if let Ok(id_val) = id_tail
+                .trim()
+                .trim_start_matches(|c: char| c == ':' || c.is_whitespace())
+                .parse::<u64>()
+            {
+                goal_id = id_val;
+                name = head.trim().to_string();
+                continue;
+            }
         }
+        if let Some(q_tail) = tag.strip_prefix('q') {
+            if let Ok(q_val) = q_tail
+                .trim()
+                .trim_start_matches(|c: char| c == ':' || c.is_whitespace())
+                .parse::<u32>()
+            {
+                quantity = Some(q_val);
+                name = head.trim().to_string();
+                continue;
+            }
+        }
+        break;
     }
 
-    (name, goal_id, time_range)
+    (name, goal_id, quantity, time_range)
 }
 
 fn parse_time_range(range: &str, date: NaiveDate) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
@@ -280,9 +305,13 @@ fn to_mermaid(nodes: &[Session]) -> String {
     }
     for (i, n) in nodes.iter().enumerate() {
         let times = format_time_range_for_mermaid(n);
+        let qty = n
+            .quantity
+            .map(|v| format!(" [q {}]", v))
+            .unwrap_or_default();
         out.push_str(&format!(
-            "    {}: {} [id {}] [{}]\n",
-            n.id, n.name, n.goal_id, times
+            "    {}: {} [id {}]{} [{}]\n",
+            n.id, n.name, n.goal_id, qty, times
         ));
         if let Some(next) = nodes.get(i + 1) {
             out.push_str(&format!("    {} --> {}\n", n.id, next.id));
