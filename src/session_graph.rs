@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use chrono::{
     DateTime, Duration as ChronoDuration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc,
 };
 
-use crate::goals::set_goal_status;
+use crate::goals::{get_goal, set_goal_status};
 use crate::types::{GoalStatus, Session, SessionKind};
 
 pub fn ensure_archive_structure(archive: &Path) -> Result<()> {
@@ -36,6 +36,12 @@ pub fn add_session(
     quantity: Option<u32>,
 ) -> Result<Session> {
     ensure_archive_structure(archive)?;
+    if quantity.is_some() {
+        let goal = get_goal(archive, goal_id)?;
+        if goal.quantity_name.is_none() {
+            bail!("Goal {goal_id} is not quantifiable");
+        }
+    }
     let day = start_at.with_timezone(&Local).date_naive();
     let mut nodes = list_day_sessions(archive, day).unwrap_or_default();
     let kind = if is_reward {

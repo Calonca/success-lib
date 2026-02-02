@@ -119,6 +119,14 @@ pub fn set_goal_trashed(archive: &Path, goal_id: u64, trashed: bool) -> Result<G
     Ok(goal)
 }
 
+pub fn get_goal(archive: &Path, goal_id: u64) -> Result<Goal> {
+    let goals = read_goals(archive)?;
+    goals
+        .into_iter()
+        .find(|g| g.id == goal_id)
+        .ok_or_else(|| anyhow!("Goal {goal_id} not found"))
+}
+
 pub fn search_goals(
     archive: &Path,
     query: &str,
