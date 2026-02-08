@@ -21,7 +21,8 @@ pub mod types;
 use chrono::{NaiveDate, TimeZone, Utc};
 use std::path::Path;
 
-use ffi_types::{AppError, SessionView};
+use ffi_types::AppError;
+pub use ffi_types::SessionView;
 
 pub use ffi_types::AppError as Error;
 pub use types::{Goal, GoalStatus, Session, SessionKind};
