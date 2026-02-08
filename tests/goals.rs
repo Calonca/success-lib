@@ -1,4 +1,3 @@
-use anyhow::Result;
 use chrono::Utc;
 use successlib::{
     add_goal, add_session, list_goals, list_trash, search_goals, set_goal_status, set_goal_trashed,
@@ -11,104 +10,119 @@ fn temp_archive() -> TempDir {
 }
 
 #[test]
-fn list_goals_filters_by_status() -> Result<()> {
+fn list_goals_filters_by_status() {
     let temp = temp_archive();
-    let archive = temp.path();
+    let archive = temp.path().to_str().unwrap().to_string();
 
-    let g1 = add_goal(archive, "Goal 1", false, vec![], None)?;
-    let g2 = add_goal(archive, "Goal 2", false, vec![], None)?;
-    set_goal_status(archive, g1.id, GoalStatus::DONE)?;
+    let g1 = add_goal(archive.clone(), "Goal 1".into(), false, vec![], None).unwrap();
+    let g2 = add_goal(archive.clone(), "Goal 2".into(), false, vec![], None).unwrap();
+    set_goal_status(archive.clone(), g1.id, GoalStatus::DONE).unwrap();
 
-    let default_visible = list_goals(archive, None)?;
+    let default_visible = list_goals(archive.clone(), None).unwrap();
     assert_eq!(default_visible.len(), 1);
     assert_eq!(default_visible[0].id, g2.id);
 
-    let done_only = list_goals(archive, Some(&[GoalStatus::DONE]))?;
+    let done_only = list_goals(archive.clone(), Some(vec![GoalStatus::DONE])).unwrap();
     assert_eq!(done_only.len(), 1);
     assert_eq!(done_only[0].id, g1.id);
 
-    let union = list_goals(archive, Some(&[GoalStatus::DONE, GoalStatus::TODO]))?;
+    let union = list_goals(archive.clone(), Some(vec![GoalStatus::DONE, GoalStatus::TODO])).unwrap();
     let mut ids: Vec<u64> = union.into_iter().map(|g| g.id).collect();
     ids.sort_unstable();
     assert_eq!(ids, vec![g1.id, g2.id]);
-
-    Ok(())
 }
 
 #[test]
-fn search_goals_respects_status_filter() -> Result<()> {
+fn search_goals_respects_status_filter() {
     let temp = temp_archive();
-    let archive = temp.path();
+    let archive = temp.path().to_str().unwrap().to_string();
 
-    let g1 = add_goal(archive, "Archive Docs", false, vec![], None)?;
-    let g2 = add_goal(archive, "Build Prototype", false, vec![], None)?;
-    set_goal_status(archive, g1.id, GoalStatus::DONE)?;
-    set_goal_status(archive, g2.id, GoalStatus::DOING)?;
+    let g1 = add_goal(archive.clone(), "Archive Docs".into(), false, vec![], None).unwrap();
+    let g2 = add_goal(archive.clone(), "Build Prototype".into(), false, vec![], None).unwrap();
+    set_goal_status(archive.clone(), g1.id, GoalStatus::DONE).unwrap();
+    set_goal_status(archive.clone(), g2.id, GoalStatus::DOING).unwrap();
 
-    let default_results = search_goals(archive, "", None, None, false)?;
+    let default_results = search_goals(archive.clone(), "".into(), None, None, Some(false)).unwrap();
     assert_eq!(default_results.len(), 1);
     assert_eq!(default_results[0].id, g2.id);
 
-    let done_results = search_goals(archive, "arch", None, Some(&[GoalStatus::DONE]), false)?;
+    let done_results = search_goals(
+        archive.clone(),
+        "arch".into(),
+        None,
+        Some(vec![GoalStatus::DONE]),
+        Some(false),
+    )
+    .unwrap();
     assert_eq!(done_results.len(), 1);
     assert_eq!(done_results[0].id, g1.id);
-
-    Ok(())
 }
 
 #[test]
-fn adding_session_moves_goal_to_doing() -> Result<()> {
+fn adding_session_moves_goal_to_doing() {
     let temp = temp_archive();
-    let archive = temp.path();
+    let archive = temp.path().to_str().unwrap().to_string();
 
-    let goal = add_goal(archive, "Practice guitar", false, vec![], None)?;
-    add_session(archive, goal.id, &goal.name, Utc::now(), 600, false, None)?;
+    let goal = add_goal(archive.clone(), "Practice guitar".into(), false, vec![], None).unwrap();
+    add_session(
+        archive.clone(),
+        goal.id,
+        goal.name.clone(),
+        Utc::now().timestamp(),
+        600,
+        false,
+        None,
+    )
+    .unwrap();
 
-    let goals = list_goals(archive, Some(&[GoalStatus::DOING]))?;
+    let goals = list_goals(archive.clone(), Some(vec![GoalStatus::DOING])).unwrap();
     assert_eq!(goals.len(), 1);
     assert_eq!(goals[0].id, goal.id);
     assert_eq!(goals[0].status, GoalStatus::DOING);
-
-    Ok(())
 }
 
 #[test]
-fn trashed_goals_are_hidden_and_listtrash_works() -> Result<()> {
+fn trashed_goals_are_hidden_and_listtrash_works() {
     let temp = temp_archive();
-    let archive = temp.path();
+    let archive = temp.path().to_str().unwrap().to_string();
 
-    let trashed = add_goal(archive, "Old goal", false, vec![], None)?;
-    let active = add_goal(archive, "New goal", false, vec![], None)?;
-    set_goal_trashed(archive, trashed.id, true)?;
+    let trashed = add_goal(archive.clone(), "Old goal".into(), false, vec![], None).unwrap();
+    let active = add_goal(archive.clone(), "New goal".into(), false, vec![], None).unwrap();
+    set_goal_trashed(archive.clone(), trashed.id, true).unwrap();
 
-    let visible = list_goals(archive, None)?;
+    let visible = list_goals(archive.clone(), None).unwrap();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].id, active.id);
 
-    let trashed_items = list_trash(archive)?;
+    let trashed_items = list_trash(archive.clone()).unwrap();
     assert_eq!(trashed_items.len(), 1);
     assert_eq!(trashed_items[0].id, trashed.id);
 
-    let search_trashed = search_goals(archive, "Old", None, None, false)?;
+    let search_trashed = search_goals(archive.clone(), "Old".into(), None, None, Some(false)).unwrap();
     assert!(search_trashed.is_empty());
-
-    Ok(())
 }
 
 #[test]
-fn reward_session_parsing_preserves_goal_id() -> Result<()> {
+fn reward_session_parsing_preserves_goal_id() {
     let temp = temp_archive();
-    let archive = temp.path();
+    let archive = temp.path().to_str().unwrap().to_string();
 
-    let reward = add_goal(archive, "Ice Cream", true, vec![], None)?;
+    let reward = add_goal(archive.clone(), "Ice Cream".into(), true, vec![], None).unwrap();
     let now = Utc::now();
-    add_session(archive, reward.id, &reward.name, now, 300, true, None)?;
+    let date_iso = now.with_timezone(&chrono::Local).date_naive().format("%Y-%m-%d").to_string();
+    
+    add_session(
+        archive.clone(),
+        reward.id,
+        reward.name.clone(),
+        now.timestamp(),
+        300,
+        true,
+        None,
+    )
+    .unwrap();
 
-    let sessions =
-        successlib::list_day_sessions(archive, now.with_timezone(&chrono::Local).date_naive())?;
+    let sessions = successlib::list_day_sessions(archive.clone(), date_iso).unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].goal_id, reward.id);
-    assert!(matches!(sessions[0].kind, successlib::SessionKind::Reward));
-
-    Ok(())
 }

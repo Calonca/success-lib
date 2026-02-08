@@ -1,22 +1,17 @@
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
 use chrono::{
     DateTime, Duration as ChronoDuration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc,
 };
 
+use crate::ffi_types::AppError;
 use crate::goals::{get_goal, set_goal_status};
+use crate::storage_io;
 use crate::types::{GoalStatus, Session, SessionKind};
 
-pub fn ensure_archive_structure(archive: &Path) -> Result<()> {
-    fs::create_dir_all(archive)?;
-    fs::create_dir_all(archive.join("graphs"))?;
-    fs::create_dir_all(archive.join("notes"))?;
-    if !archive.join("goals.yaml").exists() {
-        fs::write(archive.join("goals.yaml"), "[]")?;
-    }
+pub fn ensure_archive_structure(archive: &Path) -> Result<(), AppError> {
+    storage_io::ensure_archive_structure(archive)?;
     Ok(())
 }
 
@@ -34,12 +29,14 @@ pub fn add_session(
     duration_secs: u32,
     is_reward: bool,
     quantity: Option<u32>,
-) -> Result<Session> {
+) -> Result<Session, AppError> {
     ensure_archive_structure(archive)?;
     if quantity.is_some() {
         let goal = get_goal(archive, goal_id)?;
         if goal.quantity_name.is_none() {
-            bail!("Goal {goal_id} is not quantifiable");
+            return Err(AppError::InvalidInput {
+                detail: format!("Goal {goal_id} is not quantifiable"),
+            });
         }
     }
     let day = start_at.with_timezone(&Local).date_naive();
@@ -73,11 +70,10 @@ pub fn add_session(
     Ok(node)
 }
 
-pub fn list_day_sessions(archive: &Path, date: NaiveDate) -> Result<Vec<Session>> {
+pub fn list_day_sessions(archive: &Path, date: NaiveDate) -> Result<Vec<Session>, AppError> {
     ensure_archive_structure(archive)?;
     let mermaid_path = day_mermaid_path(archive, date);
-    if mermaid_path.exists() {
-        let content = fs::read_to_string(&mermaid_path)?;
+    if let Some(content) = storage_io::read_to_string(archive, &mermaid_path)? {
         return parse_mermaid(&content, date);
     }
     Ok(vec![])
@@ -87,17 +83,19 @@ pub fn list_sessions_between_dates(
     archive: &Path,
     start_date_iso: Option<&str>,
     end_date_iso: Option<&str>,
-) -> Result<Vec<Session>> {
+) -> Result<Vec<Session>, AppError> {
     let end_date = if let Some(iso) = end_date_iso {
-        NaiveDate::parse_from_str(iso, "%Y-%m-%d")
-            .map_err(|e| anyhow::anyhow!("invalid end date: {e}"))?
+        NaiveDate::parse_from_str(iso, "%Y-%m-%d").map_err(|e| AppError::InvalidInput {
+            detail: format!("invalid end date: {e}"),
+        })?
     } else {
         Local::now().date_naive()
     };
 
     let start_date = if let Some(iso) = start_date_iso {
-        NaiveDate::parse_from_str(iso, "%Y-%m-%d")
-            .map_err(|e| anyhow::anyhow!("invalid start date: {e}"))?
+        NaiveDate::parse_from_str(iso, "%Y-%m-%d").map_err(|e| AppError::InvalidInput {
+            detail: format!("invalid start date: {e}"),
+        })?
     } else {
         end_date - ChronoDuration::days(7)
     };
@@ -115,14 +113,17 @@ pub fn list_sessions_between_dates(
     Ok(sessions)
 }
 
-pub fn save_day_sessions(archive: &Path, nodes: &[Session], date: NaiveDate) -> Result<()> {
-    fs::create_dir_all(archive.join("graphs"))?;
+pub fn save_day_sessions(
+    archive: &Path,
+    nodes: &[Session],
+    date: NaiveDate,
+) -> Result<(), AppError> {
     let mut sorted = nodes.to_vec();
     sorted.sort_by_key(|n| n.start_at);
 
     let mermaid_path = day_mermaid_path(archive, date);
     let mermaid = to_mermaid(&sorted);
-    fs::write(mermaid_path, mermaid)?;
+    storage_io::write_string(archive, &mermaid_path, &mermaid)?;
 
     Ok(())
 }
@@ -145,7 +146,7 @@ fn next_session_id(nodes: &[Session], kind: SessionKind) -> String {
     }
 }
 
-fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>> {
+fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>, AppError> {
     let mut nodes = Vec::new();
     let mut labels = HashMap::new();
     let mut edges: Vec<(String, String)> = Vec::new();
@@ -217,6 +218,7 @@ fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>> {
     Ok(nodes)
 }
 
+#[allow(clippy::type_complexity)]
 fn split_label(
     label: &str,
     date: NaiveDate,
@@ -280,7 +282,7 @@ fn parse_time_range(range: &str, date: NaiveDate) -> Option<(DateTime<Utc>, Date
     let start_naive = NaiveDateTime::new(date, start_time);
     let mut end_naive = NaiveDateTime::new(date, end_time);
     if end_naive < start_naive {
-        end_naive = end_naive + ChronoDuration::days(1);
+        end_naive += ChronoDuration::days(1);
     }
 
     let start_local = local_from_naive(start_naive);
