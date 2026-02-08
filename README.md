@@ -24,6 +24,8 @@ Instead of reimplementing data structures for goals, sessions, and persistence, 
 
 # How to Use It
 The library is designed to be the backbone of your application. Whether you are building with **Tauri**, **React Native**, or **Compose Multiplatform**, integration is possible.
+Available APIs are shown in [lib.rs](https://github.com/Calonca/success-lib/blob/main/src/lib.rs).
+
 For example making a desktop app with Tauri can be done by adding the rust library and calling the functions inside it. For more examples look at other apps in the ecosystem section.
 
 ### Vibe Coding Prompt
