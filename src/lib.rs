@@ -14,6 +14,8 @@ pub mod notes;
 #[doc(hidden)]
 pub mod session_graph;
 #[doc(hidden)]
+mod storage_io;
+#[doc(hidden)]
 pub mod types;
 
 use chrono::{NaiveDate, TimeZone, Utc};
@@ -21,15 +23,10 @@ use std::path::Path;
 
 use ffi_types::{AppError, SessionView};
 
-pub use goals::{
-    add_goal, list_goals, list_trash, search_goals, set_goal_status, set_goal_trashed,
-};
-pub use notes::{edit_note, get_note};
-pub use session_graph::{
-    add_session, get_formatted_session_time_range, list_day_sessions, list_sessions_between_dates,
-};
+pub use ffi_types::AppError as Error;
 pub use types::{Goal, GoalStatus, Session, SessionKind};
 
+#[cfg(not(target_arch = "wasm32"))]
 uniffi::setup_scaffolding!();
 
 /// List goals stored in the archive at `archive_path`.
@@ -38,20 +35,20 @@ uniffi::setup_scaffolding!();
 /// - `statuses`: optional filter to restrict returned goals by `GoalStatus`.
 ///
 /// Returns `Ok(Vec<Goal>)` on success or an `AppError` on failure.
-#[uniffi::export]
-pub fn list_goals_api(
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn list_goals(
     archive_path: String,
     statuses: Option<Vec<GoalStatus>>,
 ) -> Result<Vec<Goal>, AppError> {
-    Ok(list_goals(Path::new(&archive_path), statuses.as_deref())?)
+    goals::list_goals(Path::new(&archive_path), statuses.as_deref())
 }
 
 /// Return goals that are currently trashed
 ///
 /// Returns `Ok(Vec<Goal>)` on success or an `AppError` on failure.
-#[uniffi::export]
-pub fn list_trash_api(archive_path: String) -> Result<Vec<Goal>, AppError> {
-    Ok(list_trash(Path::new(&archive_path))?)
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn list_trash(archive_path: String) -> Result<Vec<Goal>, AppError> {
+    goals::list_trash(Path::new(&archive_path))
 }
 
 /// Search goals by `query` in the archive at `archive_path`.
@@ -62,21 +59,21 @@ pub fn list_trash_api(archive_path: String) -> Result<Vec<Goal>, AppError> {
 /// - `sort_by_recent`: optional bool, defaults to true.
 ///
 /// Returns matching goals or an `AppError` on failure.
-#[uniffi::export]
-pub fn search_goals_api(
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn search_goals(
     archive_path: String,
     query: String,
     is_reward: Option<bool>,
     statuses: Option<Vec<GoalStatus>>,
     sort_by_recent: Option<bool>,
 ) -> Result<Vec<Goal>, AppError> {
-    Ok(search_goals(
+    goals::search_goals(
         Path::new(&archive_path),
         &query,
         is_reward,
         statuses.as_deref(),
         sort_by_recent.unwrap_or(true),
-    )?)
+    )
 }
 
 /// Add a new goal
@@ -86,54 +83,54 @@ pub fn search_goals_api(
 /// - `commands`: associated commands for the goal.
 ///
 /// Returns the created `Goal` or an `AppError` on failure.
-#[uniffi::export]
-pub fn add_goal_api(
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn add_goal(
     archive_path: String,
     name: String,
     is_reward: bool,
     commands: Vec<String>,
     quantity_name: Option<String>,
 ) -> Result<Goal, AppError> {
-    Ok(add_goal(
+    goals::add_goal(
         Path::new(&archive_path),
         &name,
         is_reward,
         commands,
         quantity_name,
-    )?)
+    )
 }
 
 /// Retrieve the note content for the goal identified by `goal_id`.
 ///
 /// Returns the note text as `String` or an `AppError` if retrieval fails.
-#[uniffi::export]
-pub fn get_note_api(archive_path: String, goal_id: u64) -> Result<String, AppError> {
-    Ok(get_note(Path::new(&archive_path), goal_id)?)
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn get_note(archive_path: String, goal_id: u64) -> Result<String, AppError> {
+    notes::get_note(Path::new(&archive_path), goal_id)
 }
 
 /// Replace the note content for the goal `goal_id` with `content`.
 ///
 /// Returns `Ok(true)` on success or an `AppError` on failure.
-#[uniffi::export]
-pub fn edit_note_api(
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn edit_note(
     archive_path: String,
     goal_id: u64,
     content: String,
 ) -> Result<bool, AppError> {
-    edit_note(Path::new(&archive_path), goal_id, &content)?;
+    notes::edit_note(Path::new(&archive_path), goal_id, &content)?;
     Ok(true)
 }
 
 /// Update the `status` of the goal identified by `goal_id`.
 ///
 /// Returns the updated `Goal` on success or an `AppError` on failure.
-#[uniffi::export]
-pub fn set_goalstatus_api(
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn set_goal_status(
     archive_path: String,
     goal_id: u64,
     status: GoalStatus,
 ) -> Result<Goal, AppError> {
-    Ok(set_goal_status(Path::new(&archive_path), goal_id, status)?)
+    goals::set_goal_status(Path::new(&archive_path), goal_id, status)
 }
 
 /// Mark a goal as trashed or untrashed.
@@ -141,17 +138,13 @@ pub fn set_goalstatus_api(
 /// - `trashed`: `true` to move the goal to trash, `false` to restore it.
 ///
 /// Returns the updated `Goal` or an `AppError` on failure.
-#[uniffi::export]
-pub fn set_goal_trashed_api(
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn set_goal_trashed(
     archive_path: String,
     goal_id: u64,
     trashed: bool,
 ) -> Result<Goal, AppError> {
-    Ok(set_goal_trashed(
-        Path::new(&archive_path),
-        goal_id,
-        trashed,
-    )?)
+    goals::set_goal_trashed(Path::new(&archive_path), goal_id, trashed)
 }
 
 /// Add a session for the specified goal and return a `SessionView`.
@@ -161,8 +154,8 @@ pub fn set_goal_trashed_api(
 /// - `is_reward`: whether the session is tied to a reward goal.
 ///
 /// Returns the created `SessionView` or an `AppError` on failure.
-#[uniffi::export]
-pub fn add_session_api(
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn add_session(
     archive_path: String,
     goal_id: u64,
     goal_name: String,
@@ -174,9 +167,11 @@ pub fn add_session_api(
     let start_at = Utc
         .timestamp_opt(start_ts_secs, 0)
         .single()
-        .ok_or_else(|| anyhow::anyhow!("invalid start_ts_secs: {start_ts_secs}"))?;
+        .ok_or_else(|| AppError::InvalidInput {
+            detail: format!("invalid start_ts_secs: {start_ts_secs}"),
+        })?;
 
-    Ok(add_session(
+    session_graph::add_session(
         Path::new(&archive_path),
         goal_id,
         &goal_name,
@@ -185,7 +180,7 @@ pub fn add_session_api(
         is_reward,
         quantity,
     )
-    .map(SessionView::from)?)
+    .map(SessionView::from)
 }
 
 /// List sessions that occurred on the given ISO date (YYYY-MM-DD).
@@ -193,15 +188,18 @@ pub fn add_session_api(
 /// - `date_iso`: date in `YYYY-MM-DD` format.
 ///
 /// Returns a vector of `SessionView` or an `AppError` on failure.
-#[uniffi::export]
-pub fn list_day_sessions_api(
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn list_day_sessions(
     archive_path: String,
     date_iso: String,
 ) -> Result<Vec<SessionView>, AppError> {
-    let date = NaiveDate::parse_from_str(&date_iso, "%Y-%m-%d")
-        .map_err(|e| anyhow::anyhow!("date_iso must be YYYY-MM-DD: {e}"))?;
+    let date = NaiveDate::parse_from_str(&date_iso, "%Y-%m-%d").map_err(|e| {
+        AppError::InvalidInput {
+            detail: format!("date_iso must be YYYY-MM-DD: {e}"),
+        }
+    })?;
 
-    let sessions = list_day_sessions(Path::new(&archive_path), date)?;
+    let sessions = session_graph::list_day_sessions(Path::new(&archive_path), date)?;
     Ok(sessions.into_iter().map(SessionView::from).collect())
 }
 
@@ -211,13 +209,13 @@ pub fn list_day_sessions_api(
 /// - `end_date_iso`: optional end date in `YYYY-MM-DD` format (defaults to today).
 ///
 /// Returns a vector of `SessionView` or an `AppError` on failure.
-#[uniffi::export]
-pub fn list_sessions_between_dates_api(
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub fn list_sessions_between_dates(
     archive_path: String,
     start_date_iso: Option<String>,
     end_date_iso: Option<String>,
 ) -> Result<Vec<SessionView>, AppError> {
-    let sessions = list_sessions_between_dates(
+    let sessions = session_graph::list_sessions_between_dates(
         Path::new(&archive_path),
         start_date_iso.as_deref(),
         end_date_iso.as_deref(),

@@ -1,31 +1,24 @@
-use std::fs::{self};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use anyhow::Result;
+use crate::ffi_types::AppError;
+use crate::storage_io;
 
-pub fn notes_path(archive: &Path, goal_id: u64) -> PathBuf {
+pub fn notes_path(archive: &Path, goal_id: u64) -> std::path::PathBuf {
     archive.join("notes").join(format!("goal_{goal_id}.md"))
 }
 
-pub fn get_note(archive: &Path, goal_id: u64) -> Result<String> {
+pub fn get_note(archive: &Path, goal_id: u64) -> Result<String, AppError> {
     let path = notes_path(archive, goal_id);
-    if !path.exists() {
-        return Ok(String::new());
-    }
-    let content = fs::read_to_string(path)?;
-    Ok(content)
+    Ok(storage_io::read_to_string(archive, &path)?.unwrap_or_default())
 }
 
-pub fn edit_note(archive: &Path, goal_id: u64, content: &str) -> Result<()> {
+pub fn edit_note(archive: &Path, goal_id: u64, content: &str) -> Result<(), AppError> {
     let path = notes_path(archive, goal_id);
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
     let content_with_newline = if content.ends_with('\n') {
         content.to_string()
     } else {
         format!("{}\n", content)
     };
-    fs::write(path, content_with_newline)?;
+    storage_io::write_string(archive, &path, &content_with_newline)?;
     Ok(())
 }
