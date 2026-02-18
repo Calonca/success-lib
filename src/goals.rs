@@ -156,9 +156,8 @@ pub fn search_goals(
     if sort_by_recent {
         for session in recent_sessions {
             let entry = last_active.entry(session.goal_id).or_insert(0);
-            let ts = session.start_at.timestamp();
-            if ts > *entry {
-                *entry = ts;
+            if session.start_at > *entry {
+                *entry = session.start_at;
             }
         }
     }

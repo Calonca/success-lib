@@ -1,5 +1,4 @@
 use crate::storage_io::StorageIoError;
-use crate::types::{Session, SessionKind};
 
 #[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Error))]
 #[derive(Debug, thiserror::Error)]
@@ -41,32 +40,6 @@ impl From<serde_yaml::Error> for AppError {
     fn from(e: serde_yaml::Error) -> Self {
         AppError::Parse {
             detail: e.to_string(),
-        }
-    }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
-#[derive(Debug, Clone)]
-pub struct SessionView {
-    pub id: String,
-    pub name: String,
-    pub goal_id: u64,
-    pub kind: SessionKind,
-    pub quantity: Option<u32>,
-    pub start_at: i64,
-    pub end_at: i64,
-}
-
-impl From<Session> for SessionView {
-    fn from(value: Session) -> Self {
-        SessionView {
-            id: value.id,
-            name: value.name,
-            goal_id: value.goal_id,
-            kind: value.kind,
-            quantity: value.quantity,
-            start_at: value.start_at.timestamp(),
-            end_at: value.end_at.timestamp(),
         }
     }
 }

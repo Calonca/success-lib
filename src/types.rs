@@ -3,7 +3,7 @@
 //! This module defines the primary domain types exposed to foreign
 //! language bindings: `Goal`, `Session`, and their supporting enums.
 //! These types are serializable and annotated for `uniffi` where needed.
-use chrono::{DateTime, Utc};
+use chrono::{Local, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 
 /// The semantic kind of a session.
@@ -63,7 +63,9 @@ pub struct Goal {
 /// - `name`: human-friendly session name.
 /// - `goal_id`: the associated goal's id.
 /// - `kind`: whether this was a `Goal` or `Reward` session.
-/// - `start_at` / `end_at`: timestamps in UTC stored as seconds since epoch.
+/// - `start_at` / `end_at`: Unix timestamps in seconds (UTC).
+/// - `quantity`: optional quantity recorded during the session.
+#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
@@ -72,14 +74,20 @@ pub struct Session {
     pub kind: SessionKind,
     #[serde(default)]
     pub quantity: Option<u32>,
-    #[serde(default = "utc_now_ts", with = "chrono::serde::ts_seconds")]
-    pub start_at: DateTime<Utc>,
-    #[serde(default = "utc_now_ts", with = "chrono::serde::ts_seconds")]
-    pub end_at: DateTime<Utc>,
+    #[serde(default)]
+    pub start_at: i64,
+    #[serde(default)]
+    pub end_at: i64,
 }
 
-/// Helper to provide a default UTC timestamp for serde defaults.
-#[doc(hidden)]
-fn utc_now_ts() -> DateTime<Utc> {
-    Utc::now()
+/// Convert a Unix-seconds timestamp to an ISO date string (`YYYY-MM-DD`)
+/// in the **local** timezone.
+pub fn timestamp_to_date_iso(ts: i64) -> String {
+    let dt = Utc
+        .timestamp_opt(ts, 0)
+        .single()
+        .expect("valid timestamp");
+    dt.with_timezone(&Local)
+        .format("%Y-%m-%d")
+        .to_string()
 }

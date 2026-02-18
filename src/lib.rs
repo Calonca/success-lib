@@ -22,10 +22,9 @@ use chrono::{NaiveDate, TimeZone, Utc};
 use std::path::Path;
 
 use ffi_types::AppError;
-pub use ffi_types::SessionView;
 
 pub use ffi_types::AppError as Error;
-pub use types::{Goal, GoalStatus, Session, SessionKind};
+pub use types::{timestamp_to_date_iso, Goal, GoalStatus, Session, SessionKind};
 
 #[cfg(not(target_arch = "wasm32"))]
 uniffi::setup_scaffolding!();
@@ -148,13 +147,13 @@ pub fn set_goal_trashed(
     goals::set_goal_trashed(Path::new(&archive_path), goal_id, trashed)
 }
 
-/// Add a session for the specified goal and return a `SessionView`.
+/// Add a session for the specified goal and return a `Session`.
 ///
 /// - `start_ts_secs`: Unix timestamp (seconds) for session start.
 /// - `duration_secs`: duration of the session in seconds.
 /// - `is_reward`: whether the session is tied to a reward goal.
 ///
-/// Returns the created `SessionView` or an `AppError` on failure.
+/// Returns the created `Session` or an `AppError` on failure.
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub fn add_session(
     archive_path: String,
@@ -164,7 +163,7 @@ pub fn add_session(
     duration_secs: u32,
     is_reward: bool,
     quantity: Option<u32>,
-) -> Result<SessionView, AppError> {
+) -> Result<Session, AppError> {
     let start_at = Utc
         .timestamp_opt(start_ts_secs, 0)
         .single()
@@ -181,27 +180,25 @@ pub fn add_session(
         is_reward,
         quantity,
     )
-    .map(SessionView::from)
 }
 
 /// List sessions that occurred on the given ISO date (YYYY-MM-DD).
 ///
 /// - `date_iso`: date in `YYYY-MM-DD` format.
 ///
-/// Returns a vector of `SessionView` or an `AppError` on failure.
+/// Returns a vector of `Session` or an `AppError` on failure.
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub fn list_day_sessions(
     archive_path: String,
     date_iso: String,
-) -> Result<Vec<SessionView>, AppError> {
+) -> Result<Vec<Session>, AppError> {
     let date = NaiveDate::parse_from_str(&date_iso, "%Y-%m-%d").map_err(|e| {
         AppError::InvalidInput {
             detail: format!("date_iso must be YYYY-MM-DD: {e}"),
         }
     })?;
 
-    let sessions = session_graph::list_day_sessions(Path::new(&archive_path), date)?;
-    Ok(sessions.into_iter().map(SessionView::from).collect())
+    session_graph::list_day_sessions(Path::new(&archive_path), date)
 }
 
 /// List sessions between two dates (inclusive).
@@ -209,17 +206,16 @@ pub fn list_day_sessions(
 /// - `start_date_iso`: optional start date in `YYYY-MM-DD` format (defaults to 7 days ago).
 /// - `end_date_iso`: optional end date in `YYYY-MM-DD` format (defaults to today).
 ///
-/// Returns a vector of `SessionView` or an `AppError` on failure.
+/// Returns a vector of `Session` or an `AppError` on failure.
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub fn list_sessions_between_dates(
     archive_path: String,
     start_date_iso: Option<String>,
     end_date_iso: Option<String>,
-) -> Result<Vec<SessionView>, AppError> {
-    let sessions = session_graph::list_sessions_between_dates(
+) -> Result<Vec<Session>, AppError> {
+    session_graph::list_sessions_between_dates(
         Path::new(&archive_path),
         start_date_iso.as_deref(),
         end_date_iso.as_deref(),
-    )?;
-    Ok(sessions.into_iter().map(SessionView::from).collect())
+    )
 }

@@ -16,8 +16,18 @@ pub fn ensure_archive_structure(archive: &Path) -> Result<(), AppError> {
 }
 
 pub fn get_formatted_session_time_range(node: &Session) -> String {
-    let start = node.start_at.with_timezone(&Local).format("%H:%M");
-    let end = node.end_at.with_timezone(&Local).format("%H:%M");
+    let start = Utc
+        .timestamp_opt(node.start_at, 0)
+        .single()
+        .unwrap()
+        .with_timezone(&Local)
+        .format("%H:%M");
+    let end = Utc
+        .timestamp_opt(node.end_at, 0)
+        .single()
+        .unwrap()
+        .with_timezone(&Local)
+        .format("%H:%M");
     format!("{start}-{end}")
 }
 
@@ -55,8 +65,8 @@ pub fn add_session(
         goal_id,
         kind,
         quantity,
-        start_at,
-        end_at,
+        start_at: start_at.timestamp(),
+        end_at: end_at.timestamp(),
     };
 
     if !is_reward {
@@ -208,8 +218,8 @@ fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>, AppErro
                     goal_id,
                     kind,
                     quantity,
-                    start_at,
-                    end_at,
+                    start_at: start_at.timestamp(),
+                    end_at: end_at.timestamp(),
                 });
             }
         }
@@ -329,11 +339,17 @@ fn to_mermaid(nodes: &[Session]) -> String {
 }
 
 fn format_time_range_for_mermaid(node: &Session) -> String {
-    fn hhmm_encoded(dt: DateTime<Local>) -> String {
-        dt.format("%H:%M").to_string().replace(':', "#colon;")
+    fn hhmm_encoded(ts: i64) -> String {
+        Utc.timestamp_opt(ts, 0)
+            .single()
+            .unwrap()
+            .with_timezone(&Local)
+            .format("%H:%M")
+            .to_string()
+            .replace(':', "#colon;")
     }
 
-    let start = hhmm_encoded(node.start_at.with_timezone(&Local));
-    let end = hhmm_encoded(node.end_at.with_timezone(&Local));
+    let start = hhmm_encoded(node.start_at);
+    let end = hhmm_encoded(node.end_at);
     format!("{start}-{end}")
 }
