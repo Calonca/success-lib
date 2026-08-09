@@ -8,13 +8,15 @@ mod ffi_types;
 // Hide internal module pages from the crate-level docs; the re-exported
 // items are still visible at the crate root and will appear in the docs.
 #[doc(hidden)]
+pub mod backend;
+#[doc(hidden)]
 pub mod goals;
 #[doc(hidden)]
 pub mod notes;
 #[doc(hidden)]
 pub mod session_graph;
 #[doc(hidden)]
-mod storage_io;
+pub mod storage_io;
 #[doc(hidden)]
 pub mod types;
 

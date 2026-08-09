@@ -2,6 +2,8 @@ use std::path::Path;
 
 use thiserror::Error;
 
+use crate::backend::StorageBackend;
+
 pub type StorageIoResult<T> = Result<T, StorageIoError>;
 
 #[derive(Debug, Error)]
@@ -14,84 +16,37 @@ pub enum StorageIoError {
     Io(#[from] std::io::Error),
 }
 
-#[cfg(target_arch = "wasm32")]
-fn local_storage() -> StorageIoResult<web_sys::Storage> {
-    let window = web_sys::window().ok_or(StorageIoError::StorageUnavailable)?;
-    window
-        .local_storage()
-        .map_err(|_| StorageIoError::StorageUnavailable)?
-        .ok_or(StorageIoError::StorageUnavailable)
+/// The default storage backend for the archive on this platform.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn backend_for(archive: &Path) -> crate::backend::FsBackend {
+    crate::backend::FsBackend::new(archive)
 }
 
+/// The default storage backend for the archive on this platform.
 #[cfg(target_arch = "wasm32")]
-fn storage_key(prefix: &Path, path: &Path) -> StorageIoResult<String> {
-    let prefix = prefix.to_str().ok_or(StorageIoError::InvalidUtf8Path)?;
-    let relative = path.strip_prefix(prefix).unwrap_or(path);
-    let path = relative.to_str().ok_or(StorageIoError::InvalidUtf8Path)?;
-    let normalized = path.trim_start_matches('/').replace('/', "__");
-    Ok(format!("{prefix}_{normalized}"))
+pub fn backend_for(archive: &Path) -> crate::backend::LocalStorageBackend {
+    let prefix = archive.to_str().unwrap_or_default();
+    crate::backend::LocalStorageBackend::new(prefix)
 }
 
-#[cfg(target_arch = "wasm32")]
+/// Convert an absolute (or already relative) path into the archive-relative
+/// form used by [`StorageBackend`].
+fn relative_path(archive: &Path, path: &Path) -> StorageIoResult<String> {
+    let relative = path.strip_prefix(archive).unwrap_or(path);
+    let relative = relative.to_str().ok_or(StorageIoError::InvalidUtf8Path)?;
+    Ok(relative
+        .trim_start_matches('/')
+        .replace(std::path::MAIN_SEPARATOR, "/"))
+}
+
 pub fn read_to_string(archive: &Path, path: &Path) -> StorageIoResult<Option<String>> {
-    let storage = local_storage()?;
-    let key = storage_key(archive, path)?;
-    Ok(storage
-        .get_item(&key)
-        .map_err(|_| StorageIoError::StorageUnavailable)?)
+    backend_for(archive).read(&relative_path(archive, path)?)
 }
 
-#[cfg(target_arch = "wasm32")]
 pub fn write_string(archive: &Path, path: &Path, content: &str) -> StorageIoResult<()> {
-    let storage = local_storage()?;
-    let key = storage_key(archive, path)?;
-    storage
-        .set_item(&key, content)
-        .map_err(|_| StorageIoError::StorageUnavailable)?;
-    Ok(())
+    backend_for(archive).write(&relative_path(archive, path)?, content)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub fn read_to_string(_archive: &Path, path: &Path) -> StorageIoResult<Option<String>> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    Ok(Some(std::fs::read_to_string(path)?))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn write_string(_archive: &Path, path: &Path, content: &str) -> StorageIoResult<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, content)?;
-    Ok(())
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 pub fn ensure_archive_structure(archive: &Path) -> StorageIoResult<()> {
-    std::fs::create_dir_all(archive)?;
-    std::fs::create_dir_all(archive.join("graphs"))?;
-    std::fs::create_dir_all(archive.join("notes"))?;
-    let goals_path = archive.join("goals.yaml");
-    if !goals_path.exists() {
-        std::fs::write(goals_path, "[]")?;
-    }
-    Ok(())
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn ensure_archive_structure(archive: &Path) -> StorageIoResult<()> {
-    let storage = local_storage()?;
-    let key = storage_key(archive, Path::new("goals.yaml"))?;
-    if storage
-        .get_item(&key)
-        .map_err(|_| StorageIoError::StorageUnavailable)?
-        .is_none()
-    {
-        storage
-            .set_item(&key, "[]")
-            .map_err(|_| StorageIoError::StorageUnavailable)?;
-    }
-    Ok(())
+    backend_for(archive).ensure_structure()
 }
