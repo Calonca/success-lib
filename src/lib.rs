@@ -28,6 +28,7 @@ use std::path::Path;
 use ffi_types::AppError;
 
 pub use ffi_types::AppError as Error;
+pub use sync::engine::SyncReport;
 pub use types::{timestamp_to_date_iso, Goal, GoalStatus, Session, SessionKind};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -203,6 +204,32 @@ pub fn list_day_sessions(
     })?;
 
     session_graph::list_day_sessions(Path::new(&archive_path), date)
+}
+
+/// Synchronize the archive with a remote store (currently Supabase).
+///
+/// Offline-first: the local archive stays the source of truth and all other
+/// APIs keep working without network. This call pushes local changes,
+/// pulls remote changes, and three-way merges files changed on both sides
+/// (sessions are unioned, conflicting notes keep both versions).
+///
+/// - `remote_url`: Supabase project URL, e.g. `https://abc123.supabase.co`.
+/// - `api_key`: Supabase API key (see `docs/supabase-setup.sql`).
+/// - `archive_id`: identifier shared by all devices syncing this archive.
+///
+/// Returns a `SyncReport` with pushed/pulled/merged file counts, or an
+/// `AppError` on failure. Exported as an async function (a `suspend fun` in
+/// Kotlin, `async` in Swift).
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export(async_runtime = "tokio"))]
+pub async fn sync(
+    archive_path: String,
+    remote_url: String,
+    api_key: String,
+    archive_id: String,
+) -> Result<SyncReport, AppError> {
+    let backend = storage_io::backend_for(Path::new(&archive_path));
+    let remote = sync::supabase::SupabaseStore::new(&remote_url, &api_key, &archive_id);
+    sync::engine::sync_archive(&backend, &remote).await
 }
 
 /// List sessions between two dates (inclusive).
