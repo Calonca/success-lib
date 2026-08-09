@@ -8,3 +8,4 @@ pub mod engine;
 pub mod merge;
 pub mod remote;
 pub mod state;
+pub mod supabase;

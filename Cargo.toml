@@ -20,11 +20,13 @@ rand = "0.8"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uniffi = { version = "0.30.0", features = ["cli"] }
 uniffi_bindgen = "0.30.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["Storage", "Window"] }
 getrandom = { version = "0.2", features = ["js"] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
 uniffi = { version = "0.30.0", features = ["build"] }
