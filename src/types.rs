@@ -41,7 +41,7 @@ pub enum GoalStatus {
 /// - `status`: current `GoalStatus`.
 /// - `trashed`: whether the goal is in the trash bin.
 #[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Goal {
     pub id: u64,
     pub name: String,
@@ -66,7 +66,7 @@ pub struct Goal {
 /// - `start_at` / `end_at`: Unix timestamps in seconds (UTC).
 /// - `quantity`: optional quantity recorded during the session.
 #[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
     pub name: String,

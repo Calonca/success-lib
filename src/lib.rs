@@ -18,6 +18,8 @@ pub mod session_graph;
 #[doc(hidden)]
 pub mod storage_io;
 #[doc(hidden)]
+pub mod sync;
+#[doc(hidden)]
 pub mod types;
 
 use chrono::{NaiveDate, TimeZone, Utc};
