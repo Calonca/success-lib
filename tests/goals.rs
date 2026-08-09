@@ -29,7 +29,9 @@ fn list_goals_filters_by_status() {
     let union = list_goals(archive.clone(), Some(vec![GoalStatus::DONE, GoalStatus::TODO])).unwrap();
     let mut ids: Vec<u64> = union.into_iter().map(|g| g.id).collect();
     ids.sort_unstable();
-    assert_eq!(ids, vec![g1.id, g2.id]);
+    let mut expected = vec![g1.id, g2.id];
+    expected.sort_unstable();
+    assert_eq!(ids, expected);
 }
 
 #[test]

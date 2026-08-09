@@ -156,7 +156,8 @@ fn next_session_id(nodes: &[Session], kind: SessionKind) -> String {
     }
 }
 
-fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>, AppError> {
+/// Parse a day file's mermaid content into sessions (used by storage and sync).
+pub(crate) fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>, AppError> {
     let mut nodes = Vec::new();
     let mut labels = HashMap::new();
     let mut edges: Vec<(String, String)> = Vec::new();
@@ -316,7 +317,9 @@ fn sanitize_id(id: &str) -> String {
     id.replace('-', "_")
 }
 
-fn to_mermaid(nodes: &[Session]) -> String {
+/// Render sessions (already sorted by start time) as a day file's mermaid
+/// content (used by storage and sync).
+pub(crate) fn to_mermaid(nodes: &[Session]) -> String {
     let mut out = String::from("stateDiagram-v2\n");
     if let Some(first) = nodes.first() {
         out.push_str(&format!("    [*] --> {}\n", first.id));

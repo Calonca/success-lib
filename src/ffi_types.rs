@@ -20,6 +20,17 @@ pub enum AppError {
 
     #[error("Parse error: {detail}")]
     Parse { detail: String },
+
+    #[error("Sync error: {detail}")]
+    Sync { detail: String },
+}
+
+impl From<crate::sync::remote::SyncError> for AppError {
+    fn from(e: crate::sync::remote::SyncError) -> Self {
+        AppError::Sync {
+            detail: e.to_string(),
+        }
+    }
 }
 
 impl From<StorageIoError> for AppError {
