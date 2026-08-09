@@ -16,7 +16,7 @@ use crate::ffi_types::AppError;
 use crate::session_graph::{parse_mermaid, to_mermaid};
 use crate::sync::merge::{merge_goals, merge_notes, merge_sessions};
 use crate::sync::remote::{RemoteStore, SyncError};
-use crate::sync::state::{self, SyncState, SYNC_PREFIX};
+use crate::sync::state::{self, SyncState};
 use crate::types::{Goal, Session};
 
 /// Outcome counts of a [`sync_archive`] run.
@@ -48,6 +48,7 @@ pub async fn sync_archive<B: StorageBackend, R: RemoteStore>(
         .list()
         .await?
         .into_iter()
+        .filter(|e| is_syncable(&e.path))
         .map(|e| (e.path, e.revision))
         .collect();
 
@@ -58,7 +59,7 @@ pub async fn sync_archive<B: StorageBackend, R: RemoteStore>(
     let mut paths: BTreeSet<String> = backend
         .list("")?
         .into_iter()
-        .filter(|p| !p.starts_with(SYNC_PREFIX))
+        .filter(|p| is_syncable(p))
         .collect();
     paths.extend(remote_revisions.keys().cloned());
     paths.remove(GOALS_PATH);
@@ -141,47 +142,76 @@ async fn sync_goals<B: StorageBackend, R: RemoteStore>(
                 .unwrap_or(false));
     match (local_changed, status.remote_changed()) {
         (false, false) => Ok(()),
+        (false, true) => pull(backend, remote, sync_state, GOALS_PATH, report).await,
         (true, false) => {
-            if let Some(content) = &status.local {
-                let revision =
-                    push_simple(remote, GOALS_PATH, content, status.state_revision).await?;
-                record_synced(backend, sync_state, GOALS_PATH, content, revision)?;
-                report.pushed += 1;
+            let Some(content) = &status.local else {
+                return Ok(());
+            };
+            match remote.put(GOALS_PATH, content, status.state_revision).await {
+                Ok(revision) => {
+                    record_synced(backend, sync_state, GOALS_PATH, content, revision)?;
+                    report.pushed += 1;
+                    Ok(())
+                }
+                // Someone synced concurrently: merge instead of failing.
+                Err(SyncError::Conflict) => {
+                    merge_and_push_goals(backend, remote, sync_state, &status, report).await
+                }
+                Err(e) => Err(e.into()),
             }
-            Ok(())
         }
-        (false, true) => {
-            pull(backend, remote, sync_state, GOALS_PATH, report).await
-        }
-        (true, true) => {
-            let base_goals = parse_goals(status.base.as_deref().unwrap_or("[]"))?;
-            let local_goals = parse_goals(status.local.as_deref().unwrap_or("[]"))?;
-            let mut attempts = 0;
-            let mut remote_doc = remote.get(GOALS_PATH).await?;
-            loop {
-                let (remote_content, remote_revision) = match &remote_doc {
-                    Some(doc) => (doc.content.clone(), Some(doc.revision)),
-                    None => ("[]".to_string(), None),
-                };
-                let remote_goals = parse_goals(&remote_content)?;
-                let result = merge_goals(&base_goals, &local_goals, &remote_goals);
-                apply_reassignments(backend, &result.reassigned)?;
-                let merged_yaml = serde_yaml::to_string(&result.merged)?;
-                backend.write(GOALS_PATH, &merged_yaml)?;
+        (true, true) => merge_and_push_goals(backend, remote, sync_state, &status, report).await,
+    }
+}
 
-                match remote.put(GOALS_PATH, &merged_yaml, remote_revision).await {
-                    Ok(revision) => {
-                        record_synced(backend, sync_state, GOALS_PATH, &merged_yaml, revision)?;
-                        report.merged += 1;
-                        return Ok(());
-                    }
-                    Err(SyncError::Conflict) if attempts < MAX_PUT_RETRIES => {
-                        attempts += 1;
-                        remote_doc = remote.get(GOALS_PATH).await?;
-                    }
-                    Err(e) => return Err(e.into()),
+/// Merge a both-sides-changed `goals.yaml` and upload it, retrying on
+/// concurrent-writer conflicts.
+async fn merge_and_push_goals<B: StorageBackend, R: RemoteStore>(
+    backend: &B,
+    remote: &R,
+    sync_state: &mut SyncState,
+    status: &FileStatus,
+    report: &mut SyncReport,
+) -> Result<(), AppError> {
+    let base_goals = parse_goals(status.base.as_deref().unwrap_or("[]"))?;
+    let mut local_goals = parse_goals(status.local.as_deref().unwrap_or("[]"))?;
+    let mut attempts = 0;
+    let mut remote_doc = remote.get(GOALS_PATH).await?;
+    loop {
+        let (remote_content, remote_revision) = match &remote_doc {
+            Some(doc) => (doc.content.clone(), Some(doc.revision)),
+            None => ("[]".to_string(), None),
+        };
+        let remote_goals = parse_goals(&remote_content)?;
+        let result = merge_goals(&base_goals, &local_goals, &remote_goals);
+        if !result.reassigned.is_empty() {
+            apply_reassignments(backend, &result.reassigned)?;
+            // Keep the in-memory local view in step, so a put-conflict retry
+            // re-merges with the already-assigned ids instead of detecting
+            // the same collision again and minting fresh ones (which would
+            // orphan the just-renamed notes and rewritten sessions).
+            for goal in &mut local_goals {
+                if let Some((_, new_id)) =
+                    result.reassigned.iter().find(|(old, _)| *old == goal.id)
+                {
+                    goal.id = *new_id;
                 }
             }
+        }
+        let merged_yaml = serde_yaml::to_string(&result.merged)?;
+        backend.write(GOALS_PATH, &merged_yaml)?;
+
+        match remote.put(GOALS_PATH, &merged_yaml, remote_revision).await {
+            Ok(revision) => {
+                record_synced(backend, sync_state, GOALS_PATH, &merged_yaml, revision)?;
+                report.merged += 1;
+                return Ok(());
+            }
+            Err(SyncError::Conflict) if attempts < MAX_PUT_RETRIES => {
+                attempts += 1;
+                remote_doc = remote.get(GOALS_PATH).await?;
+            }
+            Err(e) => return Err(e.into()),
         }
     }
 }
@@ -198,12 +228,21 @@ async fn sync_file<B: StorageBackend, R: RemoteStore>(
     match (status.local_changed(), status.remote_changed()) {
         (false, false) => Ok(()),
         (true, false) => {
-            if let Some(content) = &status.local {
-                let revision = push_simple(remote, path, content, status.state_revision).await?;
-                record_synced(backend, sync_state, path, content, revision)?;
-                report.pushed += 1;
+            let Some(content) = &status.local else {
+                return Ok(());
+            };
+            match remote.put(path, content, status.state_revision).await {
+                Ok(revision) => {
+                    record_synced(backend, sync_state, path, content, revision)?;
+                    report.pushed += 1;
+                    Ok(())
+                }
+                // Someone synced concurrently: merge instead of failing.
+                Err(SyncError::Conflict) => {
+                    merge_and_push(backend, remote, sync_state, path, &status, report).await
+                }
+                Err(e) => Err(e.into()),
             }
-            Ok(())
         }
         (false, true) => {
             if status.remote_revision.is_none() {
@@ -215,45 +254,48 @@ async fn sync_file<B: StorageBackend, R: RemoteStore>(
             pull(backend, remote, sync_state, path, report).await
         }
         (true, true) => {
-            let local_content = status.local.clone().unwrap_or_default();
-            let mut attempts = 0;
-            let mut remote_doc = remote.get(path).await?;
-            loop {
-                let (merged, remote_revision) = match &remote_doc {
-                    Some(doc) => (
-                        merge_file(path, status.base.as_deref(), &local_content, &doc.content),
-                        Some(doc.revision),
-                    ),
-                    // Remote vanished: push the local version as new.
-                    None => (local_content.clone(), None),
-                };
-                backend.write(path, &merged)?;
-
-                match remote.put(path, &merged, remote_revision).await {
-                    Ok(revision) => {
-                        record_synced(backend, sync_state, path, &merged, revision)?;
-                        report.merged += 1;
-                        return Ok(());
-                    }
-                    Err(SyncError::Conflict) if attempts < MAX_PUT_RETRIES => {
-                        attempts += 1;
-                        remote_doc = remote.get(path).await?;
-                    }
-                    Err(e) => return Err(e.into()),
-                }
-            }
+            merge_and_push(backend, remote, sync_state, path, &status, report).await
         }
     }
 }
 
-/// Push a locally-changed file whose remote side is unchanged.
-async fn push_simple<R: RemoteStore>(
+/// Merge a both-sides-changed file and upload it, retrying on
+/// concurrent-writer conflicts.
+async fn merge_and_push<B: StorageBackend, R: RemoteStore>(
+    backend: &B,
     remote: &R,
+    sync_state: &mut SyncState,
     path: &str,
-    content: &str,
-    base_revision: Option<i64>,
-) -> Result<i64, AppError> {
-    Ok(remote.put(path, content, base_revision).await?)
+    status: &FileStatus,
+    report: &mut SyncReport,
+) -> Result<(), AppError> {
+    let local_content = status.local.clone().unwrap_or_default();
+    let mut attempts = 0;
+    let mut remote_doc = remote.get(path).await?;
+    loop {
+        let (merged, remote_revision) = match &remote_doc {
+            Some(doc) => (
+                merge_file(path, status.base.as_deref(), &local_content, &doc.content),
+                Some(doc.revision),
+            ),
+            // Remote vanished: push the local version as new.
+            None => (local_content.clone(), None),
+        };
+        backend.write(path, &merged)?;
+
+        match remote.put(path, &merged, remote_revision).await {
+            Ok(revision) => {
+                record_synced(backend, sync_state, path, &merged, revision)?;
+                report.merged += 1;
+                return Ok(());
+            }
+            Err(SyncError::Conflict) if attempts < MAX_PUT_RETRIES => {
+                attempts += 1;
+                remote_doc = remote.get(path).await?;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
 }
 
 /// Pull a remotely-changed file whose local side is unchanged.
@@ -293,6 +335,25 @@ fn merge_file(path: &str, base: Option<&str>, local: &str, remote: &str) -> Stri
 fn day_file_date(path: &str) -> Option<NaiveDate> {
     let name = path.strip_prefix("graphs/")?.strip_suffix(".mmd")?;
     NaiveDate::parse_from_str(name, "%Y-%m-%d").ok()
+}
+
+/// Whether a path is part of the archive's synced data.
+///
+/// Anything else — `.sync/` bookkeeping, stray files dropped into the
+/// archive directory (`.DS_Store`, editor backups, possibly non-UTF-8), or
+/// foreign localStorage keys that happen to share the archive prefix — is
+/// neither read, uploaded, nor pulled.
+fn is_syncable(path: &str) -> bool {
+    if path == GOALS_PATH {
+        return true;
+    }
+    if let Some(rest) = path.strip_prefix("graphs/") {
+        return !rest.contains('/') && day_file_date(path).is_some();
+    }
+    if let Some(rest) = path.strip_prefix("notes/") {
+        return !rest.contains('/') && rest.ends_with(".md");
+    }
+    false
 }
 
 fn parse_goals(content: &str) -> Result<Vec<Goal>, AppError> {

@@ -8,7 +8,7 @@ use chrono::Utc;
 use successlib::goals::get_goal;
 use successlib::storage_io::backend_for;
 use successlib::sync::engine::sync_archive;
-use successlib::sync::remote::MemoryRemote;
+use successlib::sync::remote::{MemoryRemote, RemoteDoc, RemoteEntry, RemoteStore, SyncError};
 use successlib::{
     add_goal, add_session, edit_note, get_note, list_day_sessions, list_goals, GoalStatus,
 };
@@ -21,8 +21,59 @@ fn device() -> (TempDir, String) {
     (temp, path)
 }
 
-fn sync(archive: &str, remote: &MemoryRemote) -> successlib::sync::engine::SyncReport {
+fn sync_with<R: RemoteStore>(archive: &str, remote: &R) -> successlib::sync::engine::SyncReport {
     pollster::block_on(sync_archive(&backend_for(Path::new(archive)), remote)).expect("sync")
+}
+
+fn sync(archive: &str, remote: &MemoryRemote) -> successlib::sync::engine::SyncReport {
+    sync_with(archive, remote)
+}
+
+/// A remote that simulates a concurrent writer: just before the first `put`
+/// to `inject_path`, another device's content lands, forcing a revision
+/// conflict on that put.
+struct RacingRemote {
+    inner: MemoryRemote,
+    inject_path: String,
+    inject_content: String,
+    injected: std::cell::Cell<bool>,
+}
+
+impl RacingRemote {
+    fn new(inner: MemoryRemote, inject_path: &str, inject_content: &str) -> Self {
+        Self {
+            inner,
+            inject_path: inject_path.to_string(),
+            inject_content: inject_content.to_string(),
+            injected: std::cell::Cell::new(false),
+        }
+    }
+}
+
+impl RemoteStore for RacingRemote {
+    async fn list(&self) -> Result<Vec<RemoteEntry>, SyncError> {
+        self.inner.list().await
+    }
+
+    async fn get(&self, path: &str) -> Result<Option<RemoteDoc>, SyncError> {
+        self.inner.get(path).await
+    }
+
+    async fn put(
+        &self,
+        path: &str,
+        content: &str,
+        base_revision: Option<i64>,
+    ) -> Result<i64, SyncError> {
+        if path == self.inject_path && !self.injected.get() {
+            self.injected.set(true);
+            let current = self.inner.get(path).await?.map(|d| d.revision);
+            self.inner
+                .put(path, &self.inject_content, current)
+                .await?;
+        }
+        self.inner.put(path, content, base_revision).await
+    }
 }
 
 fn all_statuses() -> Option<Vec<GoalStatus>> {
@@ -187,4 +238,76 @@ fn repeated_sync_is_idempotent() {
     assert_eq!(report.pushed, 0);
     assert_eq!(report.pulled, 0);
     assert_eq!(report.merged, 0);
+}
+
+#[test]
+fn concurrent_first_push_conflict_is_merged_not_fatal() {
+    let (_ta, a) = device();
+    let interloper_yaml = "- id: 42\n  name: Interloper\n";
+    let remote = RacingRemote::new(MemoryRemote::new(), "goals.yaml", interloper_yaml);
+
+    add_goal(a.clone(), "Mine".into(), false, vec![], None).unwrap();
+    let report = sync_with(&a, &remote);
+
+    assert_eq!(report.merged, 1, "push conflict must fall back to a merge");
+    let names: Vec<String> = list_goals(a.clone(), all_statuses())
+        .unwrap()
+        .into_iter()
+        .map(|g| g.name)
+        .collect();
+    assert!(names.contains(&"Mine".to_string()));
+    assert!(names.contains(&"Interloper".to_string()));
+}
+
+#[test]
+fn goal_id_collision_with_concurrent_bump_keeps_note_and_sessions() {
+    let (_ta, a) = device();
+    // legacy archive: sequential goal id 1, with a note and a session
+    std::fs::write(format!("{a}/goals.yaml"), "- id: 1\n  name: piano\n").unwrap();
+    edit_note(a.clone(), 1, "piano note".into()).unwrap();
+    add_session(a.clone(), 1, "piano".into(), Utc::now().timestamp(), 600, false, None).unwrap();
+
+    // remote already holds a different goal under the same legacy id, and a
+    // concurrent writer bumps goals.yaml during our first upload attempt
+    let remote = RacingRemote::new(
+        MemoryRemote::new(),
+        "goals.yaml",
+        "- id: 1\n  name: novel\n- id: 7\n  name: other\n",
+    );
+    pollster::block_on(remote.inner.put("goals.yaml", "- id: 1\n  name: novel\n", None)).unwrap();
+
+    sync_with(&a, &remote);
+
+    let goals = list_goals(a.clone(), all_statuses()).unwrap();
+    let piano = goals.iter().find(|g| g.name == "piano").expect("piano survives");
+    assert_ne!(piano.id, 1, "piano must be reassigned off the colliding id");
+    assert_eq!(
+        get_note(a.clone(), piano.id).unwrap(),
+        "piano note\n",
+        "note must follow the reassigned id even across a put-conflict retry"
+    );
+    let sessions = list_day_sessions(a.clone(), today_iso()).unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].goal_id, piano.id);
+}
+
+#[test]
+fn stray_files_are_ignored_and_do_not_break_sync() {
+    let (_ta, a) = device();
+    add_goal(a.clone(), "Real".into(), false, vec![], None).unwrap();
+    std::fs::write(format!("{a}/.DS_Store"), [0u8, 0x9f, 0x92, 0x96]).unwrap();
+    std::fs::create_dir_all(format!("{a}/notes")).unwrap();
+    std::fs::write(format!("{a}/notes/draft.txt"), "not a note").unwrap();
+
+    let remote = MemoryRemote::new();
+    let report = sync(&a, &remote);
+    assert!(report.pushed >= 1);
+    assert!(
+        !remote
+            .paths()
+            .iter()
+            .any(|p| p.contains("DS_Store") || p.contains("draft")),
+        "stray files must not be uploaded, got {:?}",
+        remote.paths()
+    );
 }

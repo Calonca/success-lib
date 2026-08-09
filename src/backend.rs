@@ -128,7 +128,15 @@ impl StorageBackend for FsBackend {
         if let Some(parent) = full.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(full, content)?;
+        // Write-then-rename so a crash mid-write never leaves a truncated
+        // file behind (renames within a directory are atomic).
+        let file_name = full
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or(StorageIoError::InvalidUtf8Path)?;
+        let tmp = full.with_file_name(format!("{file_name}.tmp"));
+        std::fs::write(&tmp, content)?;
+        std::fs::rename(&tmp, &full)?;
         Ok(())
     }
 

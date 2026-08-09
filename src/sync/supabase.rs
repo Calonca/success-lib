@@ -99,18 +99,34 @@ async fn decode<T: serde::de::DeserializeOwned>(
 
 impl RemoteStore for SupabaseStore {
     async fn list(&self) -> Result<Vec<RemoteEntry>, SyncError> {
-        let builder = self
-            .client
-            .get(self.endpoint())
-            .query(&[("select".to_string(), "path,revision".to_string()), self.archive_filter()]);
-        let rows: Vec<EntryRow> = decode(self.send(builder).await?).await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| RemoteEntry {
+        // Page through results: PostgREST silently caps unranged queries
+        // (Supabase default 1000 rows), and a truncated listing would make
+        // the engine believe documents were deleted remotely.
+        const PAGE_SIZE: usize = 1000;
+        let mut entries = Vec::new();
+        let mut offset = 0;
+        loop {
+            let builder = self
+                .client
+                .get(self.endpoint())
+                .query(&[
+                    ("select".to_string(), "path,revision".to_string()),
+                    ("order".to_string(), "path.asc".to_string()),
+                    self.archive_filter(),
+                ])
+                .header("Range-Unit", "items")
+                .header("Range", format!("{}-{}", offset, offset + PAGE_SIZE - 1));
+            let rows: Vec<EntryRow> = decode(self.send(builder).await?).await?;
+            let count = rows.len();
+            entries.extend(rows.into_iter().map(|r| RemoteEntry {
                 path: r.path,
                 revision: r.revision,
-            })
-            .collect())
+            }));
+            if count < PAGE_SIZE {
+                return Ok(entries);
+            }
+            offset += PAGE_SIZE;
+        }
     }
 
     async fn get(&self, path: &str) -> Result<Option<RemoteDoc>, SyncError> {

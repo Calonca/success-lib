@@ -53,10 +53,13 @@ pub fn list_trash(archive: &Path) -> Result<Vec<Goal>, AppError> {
 /// Generate a random goal id that is non-zero and unused in `goals`.
 ///
 /// Random (rather than sequential) ids keep goals created offline on
-/// different devices from colliding when archives are synced.
+/// different devices from colliding when archives are synced. Ids are
+/// capped at 2^53 - 1 so JavaScript consumers can represent them exactly
+/// as `Number`s.
 pub fn new_goal_id(goals: &[Goal]) -> u64 {
+    const MAX_JS_SAFE_ID: u64 = (1 << 53) - 1;
     loop {
-        let id = rand::random::<u64>();
+        let id = rand::random::<u64>() & MAX_JS_SAFE_ID;
         if id != 0 && !goals.iter().any(|g| g.id == id) {
             return id;
         }

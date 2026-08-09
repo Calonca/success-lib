@@ -84,7 +84,21 @@ pub fn merge_goals(base: &[Goal], local: &[Goal], remote: &[Goal]) -> GoalsMerge
                 {
                     // Two distinct goals minted the same legacy id offline.
                     merged.push((*remote_goal).clone());
-                    collided.push(local_goal.clone());
+                    // If the remote already holds an identical goal under a
+                    // different id (a previous, interrupted resolution of
+                    // this very collision), map to it instead of minting yet
+                    // another id.
+                    let existing = remote.iter().find(|r| {
+                        r.id != local_goal.id && {
+                            let mut candidate = (*r).clone();
+                            candidate.id = local_goal.id;
+                            candidate == *local_goal
+                        }
+                    });
+                    match existing {
+                        Some(twin) => reassigned.push((local_goal.id, twin.id)),
+                        None => collided.push(local_goal.clone()),
+                    }
                 } else if local_goal == *remote_goal {
                     merged.push(local_goal.clone());
                 } else if base_goal.is_some_and(|b| *b == local_goal) {
@@ -119,11 +133,29 @@ pub fn merge_goals(base: &[Goal], local: &[Goal], remote: &[Goal]) -> GoalsMerge
 /// If only one side changed since `base`, that side wins. If both changed,
 /// both versions are kept, separated by a conflict divider, so no text is
 /// ever silently dropped.
+///
+/// The merge is idempotent: when one side already contains the other's text
+/// (e.g. a previous merge was interrupted between the local write and the
+/// upload), the containing side wins instead of concatenating again.
 pub fn merge_notes(base: &str, local: &str, remote: &str) -> String {
     if local == remote || remote == base {
         return local.to_string();
     }
     if local == base {
+        return remote.to_string();
+    }
+    let local_trimmed = local.trim();
+    let remote_trimmed = remote.trim();
+    if remote_trimmed.is_empty() {
+        return local.to_string();
+    }
+    if local_trimmed.is_empty() {
+        return remote.to_string();
+    }
+    if local.contains(remote_trimmed) {
+        return local.to_string();
+    }
+    if remote.contains(local_trimmed) {
         return remote.to_string();
     }
     format!(
@@ -270,5 +302,36 @@ mod tests {
         assert!(merged.contains("local text"));
         assert!(merged.contains("remote text"));
         assert!(merged.contains("_Conflicting version from another device:_"));
+    }
+
+    #[test]
+    fn merge_notes_is_idempotent_after_interrupted_merge() {
+        let merged = merge_notes("base\n", "local text\n", "remote text\n");
+        // Upload failed after the local write: the next sync re-merges the
+        // already-merged local against the same remote.
+        assert_eq!(merge_notes("base\n", &merged, "remote text\n"), merged);
+        // Crash after the upload: local still holds the original while the
+        // remote holds the merge.
+        assert_eq!(merge_notes("base\n", "local text\n", &merged), merged);
+    }
+
+    #[test]
+    fn merge_goals_collision_maps_to_identical_remote_twin() {
+        let local = vec![goal(1, "piano", GoalStatus::TODO)];
+        let remote = vec![
+            goal(1, "novel", GoalStatus::TODO),
+            goal(77, "piano", GoalStatus::TODO),
+        ];
+        let result = merge_goals(&[], &local, &remote);
+        assert_eq!(result.reassigned, vec![(1, 77)]);
+        assert_eq!(result.merged.len(), 2, "no third goal is minted");
+        assert!(result
+            .merged
+            .iter()
+            .any(|g| g.id == 77 && g.name == "piano"));
+        assert!(result
+            .merged
+            .iter()
+            .any(|g| g.id == 1 && g.name == "novel"));
     }
 }

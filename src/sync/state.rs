@@ -29,9 +29,10 @@ pub fn load_state(backend: &dyn StorageBackend) -> Result<SyncState, AppError> {
     let Some(data) = backend.read(STATE_PATH)? else {
         return Ok(SyncState::default());
     };
-    serde_json::from_str(&data).map_err(|e| AppError::Parse {
-        detail: format!("corrupt {STATE_PATH}: {e}"),
-    })
+    // A corrupt state file (e.g. a crash mid-write) must not brick sync:
+    // treat it as never-synced. The merge rules are idempotent, so
+    // re-merging already-synced files converges to the same content.
+    Ok(serde_json::from_str(&data).unwrap_or_default())
 }
 
 pub fn save_state(backend: &dyn StorageBackend, state: &SyncState) -> Result<(), AppError> {
