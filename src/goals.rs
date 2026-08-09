@@ -50,8 +50,17 @@ pub fn list_trash(archive: &Path) -> Result<Vec<Goal>, AppError> {
     Ok(goals.into_iter().filter(|g| g.trashed).collect())
 }
 
-pub fn next_goal_id(goals: &[Goal]) -> u64 {
-    goals.iter().map(|g| g.id).max().unwrap_or(0) + 1
+/// Generate a random goal id that is non-zero and unused in `goals`.
+///
+/// Random (rather than sequential) ids keep goals created offline on
+/// different devices from colliding when archives are synced.
+pub fn new_goal_id(goals: &[Goal]) -> u64 {
+    loop {
+        let id = rand::random::<u64>();
+        if id != 0 && !goals.iter().any(|g| g.id == id) {
+            return id;
+        }
+    }
 }
 
 pub fn add_goal(
@@ -62,7 +71,7 @@ pub fn add_goal(
     quantity_name: Option<String>,
 ) -> Result<Goal, AppError> {
     let mut goals = read_goals(archive)?;
-    let id = next_goal_id(&goals);
+    let id = new_goal_id(&goals);
     let goal = Goal {
         id,
         name: name.to_string(),
@@ -196,4 +205,38 @@ pub fn search_goals(
         score_b.cmp(score_a)
     });
     Ok(scored.into_iter().map(|(_, g)| g).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn goal_with_id(id: u64) -> Goal {
+        Goal {
+            id,
+            name: format!("g{id}"),
+            is_reward: false,
+            commands: vec![],
+            status: GoalStatus::TODO,
+            trashed: false,
+            quantity_name: None,
+        }
+    }
+
+    #[test]
+    fn new_goal_id_is_nonzero_and_unused() {
+        let goals: Vec<Goal> = (1..=5).map(goal_with_id).collect();
+        for _ in 0..100 {
+            let id = new_goal_id(&goals);
+            assert_ne!(id, 0);
+            assert!(!goals.iter().any(|g| g.id == id));
+        }
+    }
+
+    #[test]
+    fn new_goal_id_varies() {
+        let ids: std::collections::HashSet<u64> =
+            (0..10).map(|_| new_goal_id(&[])).collect();
+        assert!(ids.len() > 1, "random ids should not repeat every time");
+    }
 }
