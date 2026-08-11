@@ -31,7 +31,7 @@ pub use ffi_types::AppError as Error;
 pub use sync::engine::SyncReport;
 pub use types::{timestamp_to_date_iso, Goal, GoalStatus, Session, SessionKind};
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "uniffi"))]
 uniffi::setup_scaffolding!();
 
 /// List goals stored in the archive at `archive_path`.
@@ -40,7 +40,7 @@ uniffi::setup_scaffolding!();
 /// - `statuses`: optional filter to restrict returned goals by `GoalStatus`.
 ///
 /// Returns `Ok(Vec<Goal>)` on success or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn list_goals(
     archive_path: String,
     statuses: Option<Vec<GoalStatus>>,
@@ -51,7 +51,7 @@ pub fn list_goals(
 /// Return goals that are currently trashed
 ///
 /// Returns `Ok(Vec<Goal>)` on success or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn list_trash(archive_path: String) -> Result<Vec<Goal>, AppError> {
     goals::list_trash(Path::new(&archive_path))
 }
@@ -64,7 +64,7 @@ pub fn list_trash(archive_path: String) -> Result<Vec<Goal>, AppError> {
 /// - `sort_by_recent`: optional bool, defaults to true.
 ///
 /// Returns matching goals or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn search_goals(
     archive_path: String,
     query: String,
@@ -88,7 +88,7 @@ pub fn search_goals(
 /// - `commands`: associated commands for the goal.
 ///
 /// Returns the created `Goal` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn add_goal(
     archive_path: String,
     name: String,
@@ -108,7 +108,7 @@ pub fn add_goal(
 /// Retrieve the note content for the goal identified by `goal_id`.
 ///
 /// Returns the note text as `String` or an `AppError` if retrieval fails.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn get_note(archive_path: String, goal_id: u64) -> Result<String, AppError> {
     notes::get_note(Path::new(&archive_path), goal_id)
 }
@@ -116,7 +116,7 @@ pub fn get_note(archive_path: String, goal_id: u64) -> Result<String, AppError> 
 /// Replace the note content for the goal `goal_id` with `content`.
 ///
 /// Returns `Ok(true)` on success or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn edit_note(
     archive_path: String,
     goal_id: u64,
@@ -129,7 +129,7 @@ pub fn edit_note(
 /// Update the `status` of the goal identified by `goal_id`.
 ///
 /// Returns the updated `Goal` on success or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn set_goal_status(
     archive_path: String,
     goal_id: u64,
@@ -143,7 +143,7 @@ pub fn set_goal_status(
 /// - `trashed`: `true` to move the goal to trash, `false` to restore it.
 ///
 /// Returns the updated `Goal` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn set_goal_trashed(
     archive_path: String,
     goal_id: u64,
@@ -159,7 +159,7 @@ pub fn set_goal_trashed(
 /// - `is_reward`: whether the session is tied to a reward goal.
 ///
 /// Returns the created `Session` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn add_session(
     archive_path: String,
     goal_id: u64,
@@ -192,7 +192,7 @@ pub fn add_session(
 /// - `date_iso`: date in `YYYY-MM-DD` format.
 ///
 /// Returns a vector of `Session` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn list_day_sessions(
     archive_path: String,
     date_iso: String,
@@ -220,7 +220,7 @@ pub fn list_day_sessions(
 /// Returns a `SyncReport` with pushed/pulled/merged file counts, or an
 /// `AppError` on failure. Exported as an async function (a `suspend fun` in
 /// Kotlin, `async` in Swift).
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export(async_runtime = "tokio"))]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export(async_runtime = "tokio"))]
 pub async fn sync(
     archive_path: String,
     remote_url: String,
@@ -238,7 +238,7 @@ pub async fn sync(
 /// - `end_date_iso`: optional end date in `YYYY-MM-DD` format (defaults to today).
 ///
 /// Returns a vector of `Session` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn list_sessions_between_dates(
     archive_path: String,
     start_date_iso: Option<String>,

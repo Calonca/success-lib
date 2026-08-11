@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// - `Goal`: a session associated with a normal goal.
 /// - `Reward`: a session associated with a reward goal.
-#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Enum))]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionKind {
     Goal,
@@ -22,7 +22,7 @@ pub enum SessionKind {
 /// - `TODO`: goal not yet started.
 /// - `DOING`: goal in progress.
 /// - `DONE`: goal completed.
-#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Enum))]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GoalStatus {
     #[default]
@@ -40,7 +40,7 @@ pub enum GoalStatus {
 /// - `commands`: optional associated commands.
 /// - `status`: current `GoalStatus`.
 /// - `trashed`: whether the goal is in the trash bin.
-#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Goal {
     pub id: u64,
@@ -65,7 +65,7 @@ pub struct Goal {
 /// - `kind`: whether this was a `Goal` or `Reward` session.
 /// - `start_at` / `end_at`: Unix timestamps in seconds (UTC).
 /// - `quantity`: optional quantity recorded during the session.
-#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,

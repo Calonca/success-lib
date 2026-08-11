@@ -20,7 +20,7 @@ use crate::sync::state::{self, SyncState};
 use crate::types::{Goal, Session};
 
 /// Outcome counts of a [`sync_archive`] run.
-#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), derive(uniffi::Record))]
 #[derive(Debug, Default, Clone)]
 pub struct SyncReport {
     /// Files whose local version was uploaded.
