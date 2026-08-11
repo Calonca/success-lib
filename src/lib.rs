@@ -241,6 +241,47 @@ pub async fn sync(
     sync::engine::sync_archive(&backend, &remote).await
 }
 
+/// Synchronize the archive using the Supabase configuration baked in at
+/// build time.
+///
+/// Identical to `sync()`, except the remote URL and API key come from the
+/// `.env` file that was present when this library was compiled (see
+/// `.env.example`). Use this when every app sharing one database should not
+/// need to know the Supabase credentials itself.
+///
+/// - `archive_path`: path to the archive directory.
+/// - `archive_id`: identifier shared by all devices syncing this archive.
+///
+/// Returns a `SyncReport` with pushed/pulled/merged file counts, or an
+/// `AppError` on failure. If the library was built without a `.env`, returns
+/// `AppError::InvalidInput`; call `sync()` with explicit credentials instead.
+/// Exported as an async function (a `suspend fun` in Kotlin, `async` in
+/// Swift).
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export(async_runtime = "tokio"))]
+pub async fn sync_default(
+    archive_path: String,
+    archive_id: String,
+) -> Result<SyncReport, AppError> {
+    let (Some(remote_url), Some(api_key)) = (
+        option_env!("SUCCESS_SUPABASE_URL"),
+        option_env!("SUCCESS_SUPABASE_ANON_KEY"),
+    ) else {
+        return Err(AppError::InvalidInput {
+            detail: "library was built without a Supabase config; pass the URL and key \
+                     explicitly via sync()"
+                .to_string(),
+        });
+    };
+
+    sync(
+        archive_path,
+        remote_url.to_string(),
+        api_key.to_string(),
+        archive_id,
+    )
+    .await
+}
+
 /// List sessions between two dates (inclusive).
 ///
 /// - `start_date_iso`: optional start date in `YYYY-MM-DD` format (defaults to 7 days ago).

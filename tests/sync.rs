@@ -292,6 +292,30 @@ fn goal_id_collision_with_concurrent_bump_keeps_note_and_sessions() {
 }
 
 #[test]
+fn sync_default_without_baked_config_reports_invalid_input() {
+    if option_env!("SUCCESS_SUPABASE_URL").is_some()
+        && option_env!("SUCCESS_SUPABASE_ANON_KEY").is_some()
+    {
+        eprintln!("skipping: this build has a baked-in Supabase config (.env present)");
+        return;
+    }
+
+    let (_ta, a) = device();
+    let err = pollster::block_on(successlib::sync_default(a, "archive-1".into()))
+        .expect_err("unconfigured build must refuse to sync");
+
+    assert!(
+        matches!(
+            &err,
+            successlib::Error::InvalidInput { detail }
+                if detail == "library was built without a Supabase config; \
+                              pass the URL and key explicitly via sync()"
+        ),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
 fn stray_files_are_ignored_and_do_not_break_sync() {
     let (_ta, a) = device();
     add_goal(a.clone(), "Real".into(), false, vec![], vec![]).unwrap();
