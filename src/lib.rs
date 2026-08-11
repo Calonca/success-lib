@@ -89,6 +89,9 @@ pub fn search_goals(
 /// - `name`: the goal name.
 /// - `is_reward`: whether this goal is considered a reward.
 /// - `commands`: associated commands for the goal.
+/// - `quantity_names`: names of the quantities sessions may record against
+///   this goal (empty for a non-quantifiable goal). Each name must match
+///   `[a-z0-9_-]+` — lowercase ASCII, digits, `_`, `-`.
 ///
 /// Returns the created `Goal` or an `AppError` on failure.
 #[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
@@ -160,6 +163,9 @@ pub fn set_goal_trashed(
 /// - `start_ts_secs`: Unix timestamp (seconds) for session start.
 /// - `duration_secs`: duration of the session in seconds.
 /// - `is_reward`: whether the session is tied to a reward goal.
+/// - `quantities`: named measurements recorded during the session. Every
+///   name must be declared in the goal's `quantity_names` (a subset is
+///   allowed, duplicates are not).
 ///
 /// Returns the created `Session` or an `AppError` on failure.
 #[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]

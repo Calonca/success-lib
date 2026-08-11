@@ -26,6 +26,8 @@ Instead of reimplementing data structures for goals, sessions, and persistence, 
 The library is designed to be the backbone of your application. Whether you are building with **Tauri**, **React Native**, or **Compose Multiplatform**, integration is possible.
 Available APIs are shown in [lib.rs](https://github.com/Calonca/success-lib/blob/main/src/lib.rs).
 
+Goals can declare named quantities via `add_goal(archive_path, name, is_reward, commands, quantity_names)`, and sessions record them via `add_session(archive_path, goal_id, goal_name, start_ts_secs, duration_secs, is_reward, quantities)` — e.g. `cards=42 known=1520`; old single-quantity archives load unchanged.
+
 For example making a desktop app with Tauri can be done by adding the rust library and calling the functions inside it. For more examples look at other apps in the ecosystem section.
 
 ### Vibe Coding Prompt

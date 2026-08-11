@@ -21,7 +21,7 @@ use crate::types::{Goal, Session};
 
 /// Outcome counts of a [`sync_archive`] run.
 #[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), derive(uniffi::Record))]
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SyncReport {
     /// Files whose local version was uploaded.
     pub pushed: u32,
@@ -399,4 +399,16 @@ fn apply_reassignments<B: StorageBackend>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_report_serialises_for_json_consumers() {
+        let report = SyncReport { pushed: 1, pulled: 2, merged: 3 };
+        let json = serde_json::to_string(&report).unwrap();
+        assert_eq!(json, r#"{"pushed":1,"pulled":2,"merged":3}"#);
+    }
 }
