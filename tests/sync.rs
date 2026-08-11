@@ -96,7 +96,7 @@ fn fresh_device_pulls_everything() {
 
     let goal = add_goal(a.clone(), "Learn Rust".into(), false, vec![], vec![]).unwrap();
     edit_note(a.clone(), goal.id, "read the book".into()).unwrap();
-    add_session(a.clone(), goal.id, goal.name.clone(), Utc::now().timestamp(), 600, false, None)
+    add_session(a.clone(), goal.id, goal.name.clone(), Utc::now().timestamp(), 600, false, vec![])
         .unwrap();
 
     let report_a = sync(&a, &remote);
@@ -120,13 +120,13 @@ fn same_day_sessions_from_both_devices_are_merged() {
 
     let goal = add_goal(a.clone(), "Practice".into(), false, vec![], vec![]).unwrap();
     let base_ts = Utc::now().timestamp();
-    add_session(a.clone(), goal.id, goal.name.clone(), base_ts, 600, false, None).unwrap();
+    add_session(a.clone(), goal.id, goal.name.clone(), base_ts, 600, false, vec![]).unwrap();
     sync(&a, &remote);
     sync(&b, &remote);
 
     // both devices record a session in the same day file, offline
-    add_session(a.clone(), goal.id, goal.name.clone(), base_ts + 1000, 600, false, None).unwrap();
-    add_session(b.clone(), goal.id, goal.name.clone(), base_ts + 2000, 600, false, None).unwrap();
+    add_session(a.clone(), goal.id, goal.name.clone(), base_ts + 1000, 600, false, vec![]).unwrap();
+    add_session(b.clone(), goal.id, goal.name.clone(), base_ts + 2000, 600, false, vec![]).unwrap();
 
     sync(&a, &remote); // A pushes its version
     let report_b = sync(&b, &remote); // B merges
@@ -265,7 +265,7 @@ fn goal_id_collision_with_concurrent_bump_keeps_note_and_sessions() {
     // legacy archive: sequential goal id 1, with a note and a session
     std::fs::write(format!("{a}/goals.yaml"), "- id: 1\n  name: piano\n").unwrap();
     edit_note(a.clone(), 1, "piano note".into()).unwrap();
-    add_session(a.clone(), 1, "piano".into(), Utc::now().timestamp(), 600, false, None).unwrap();
+    add_session(a.clone(), 1, "piano".into(), Utc::now().timestamp(), 600, false, vec![]).unwrap();
 
     // remote already holds a different goal under the same legacy id, and a
     // concurrent writer bumps goals.yaml during our first upload attempt

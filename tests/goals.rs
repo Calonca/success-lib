@@ -73,7 +73,7 @@ fn adding_session_moves_goal_to_doing() {
         Utc::now().timestamp(),
         600,
         false,
-        None,
+        vec![],
     )
     .unwrap();
 
@@ -120,7 +120,7 @@ fn reward_session_parsing_preserves_goal_id() {
         now.timestamp(),
         300,
         true,
-        None,
+        vec![],
     )
     .unwrap();
 

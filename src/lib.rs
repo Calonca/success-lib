@@ -170,7 +170,7 @@ pub fn add_session(
     start_ts_secs: i64,
     duration_secs: u32,
     is_reward: bool,
-    quantity: Option<u32>,
+    quantities: Vec<QuantityValue>,
 ) -> Result<Session, AppError> {
     let start_at = Utc
         .timestamp_opt(start_ts_secs, 0)
@@ -186,7 +186,7 @@ pub fn add_session(
         start_at,
         duration_secs,
         is_reward,
-        quantity,
+        quantities,
     )
 }
 

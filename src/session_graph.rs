@@ -8,7 +8,7 @@ use chrono::{
 use crate::ffi_types::AppError;
 use crate::goals::{get_goal, set_goal_status};
 use crate::storage_io;
-use crate::types::{GoalStatus, Session, SessionKind};
+use crate::types::{GoalStatus, QuantityValue, Session, SessionKind};
 
 pub fn ensure_archive_structure(archive: &Path) -> Result<(), AppError> {
     storage_io::ensure_archive_structure(archive)?;
@@ -38,10 +38,10 @@ pub fn add_session(
     start_at: DateTime<Utc>,
     duration_secs: u32,
     is_reward: bool,
-    quantity: Option<u32>,
+    quantities: Vec<QuantityValue>,
 ) -> Result<Session, AppError> {
     ensure_archive_structure(archive)?;
-    if quantity.is_some() {
+    if !quantities.is_empty() {
         let goal = get_goal(archive, goal_id)?;
         if goal.quantity_names.is_empty() {
             return Err(AppError::InvalidInput {
@@ -64,7 +64,7 @@ pub fn add_session(
         name: goal_name.to_string(),
         goal_id,
         kind,
-        quantity,
+        quantities,
         start_at: start_at.timestamp(),
         end_at: end_at.timestamp(),
     };
@@ -204,7 +204,7 @@ pub(crate) fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Sessio
     let mut cursor = start;
     while let Some(id) = cursor {
         if let Some(label) = labels.get(&id) {
-            let (name, goal_id, quantity, explicit_time) = split_label(label, date);
+            let (name, goal_id, quantities, explicit_time) = split_label(label, date);
             let clean_id = sanitize_id(&id);
             let kind = if clean_id.starts_with("rew_") {
                 SessionKind::Reward
@@ -218,7 +218,7 @@ pub(crate) fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Sessio
                     name,
                     goal_id,
                     kind,
-                    quantity,
+                    quantities,
                     start_at: start_at.timestamp(),
                     end_at: end_at.timestamp(),
                 });
@@ -236,7 +236,7 @@ fn split_label(
 ) -> (
     String,
     u64,
-    Option<u32>,
+    Vec<QuantityValue>,
     Option<(DateTime<Utc>, DateTime<Utc>)>,
 ) {
     let (without_time, time_range) = match label.rsplit_once('[') {
@@ -248,7 +248,7 @@ fn split_label(
     };
 
     let mut goal_id = 0;
-    let mut quantity = None;
+    let mut quantities = Vec::new();
     let mut name = without_time.trim().to_string();
 
     loop {
@@ -268,12 +268,30 @@ fn split_label(
             }
         }
         if let Some(q_tail) = tag.strip_prefix('q') {
-            if let Ok(q_val) = q_tail
+            let body = q_tail
                 .trim()
-                .trim_start_matches(|c: char| c == ':' || c.is_whitespace())
-                .parse::<u32>()
-            {
-                quantity = Some(q_val);
+                .trim_start_matches(|c: char| c == ':' || c.is_whitespace());
+            if body.contains('=') {
+                let mut parsed = Vec::new();
+                let ok = body.split_whitespace().all(|pair| {
+                    match pair.split_once('=') {
+                        Some((qname, value)) if !qname.is_empty() => match value.parse::<u32>() {
+                            Ok(v) => {
+                                parsed.push(QuantityValue { name: qname.to_string(), value: v });
+                                true
+                            }
+                            Err(_) => false,
+                        },
+                        _ => false,
+                    }
+                });
+                if ok && !parsed.is_empty() {
+                    quantities = parsed;
+                    name = head.trim().to_string();
+                    continue;
+                }
+            } else if let Ok(v) = body.parse::<u32>() {
+                quantities = vec![QuantityValue { name: String::new(), value: v }];
                 name = head.trim().to_string();
                 continue;
             }
@@ -281,7 +299,7 @@ fn split_label(
         break;
     }
 
-    (name, goal_id, quantity, time_range)
+    (name, goal_id, quantities, time_range)
 }
 
 fn parse_time_range(range: &str, date: NaiveDate) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
@@ -326,10 +344,17 @@ pub(crate) fn to_mermaid(nodes: &[Session]) -> String {
     }
     for (i, n) in nodes.iter().enumerate() {
         let times = format_time_range_for_mermaid(n);
-        let qty = n
-            .quantity
-            .map(|v| format!(" [q {}]", v))
-            .unwrap_or_default();
+        let qty = match n.quantities.as_slice() {
+            [] => String::new(),
+            [q] if q.name.is_empty() => format!(" [q {}]", q.value),
+            qs => {
+                let mut sorted: Vec<&QuantityValue> = qs.iter().collect();
+                sorted.sort_by(|a, b| a.name.cmp(&b.name));
+                let body: Vec<String> =
+                    sorted.iter().map(|q| format!("{}={}", q.name, q.value)).collect();
+                format!(" [q {}]", body.join(" "))
+            }
+        };
         out.push_str(&format!(
             "    {}: {} [id {}]{} [{}]\n",
             n.id, n.name, n.goal_id, qty, times
@@ -355,4 +380,71 @@ fn format_time_range_for_mermaid(node: &Session) -> String {
     let start = hhmm_encoded(node.start_at);
     let end = hhmm_encoded(node.end_at);
     format!("{start}-{end}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::QuantityValue;
+
+    fn qv(name: &str, value: u32) -> QuantityValue {
+        QuantityValue { name: name.into(), value }
+    }
+
+    #[test]
+    fn named_quantities_render_sorted_and_round_trip() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let start = chrono::Local
+            .with_ymd_and_hms(2026, 8, 11, 9, 0, 0)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let session = Session {
+            id: "sess_1".into(),
+            name: "Japanese".into(),
+            goal_id: 123,
+            kind: SessionKind::Goal,
+            quantities: vec![qv("known", 1520), qv("cards", 42)],
+            start_at: start.timestamp(),
+            end_at: start.timestamp() + 1500,
+        };
+        let text = to_mermaid(&[session.clone()]);
+        assert!(
+            text.contains("[q cards=42 known=1520]"),
+            "sorted by name regardless of input order: {text}"
+        );
+        let parsed = parse_mermaid(&text, date).unwrap();
+        // Parsing the sorted rendering yields the canonical (sorted) order.
+        let mut expected = session;
+        expected.quantities.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(parsed, vec![expected]);
+    }
+
+    #[test]
+    fn legacy_bare_quantity_parses_and_round_trips_unchanged() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let content = "stateDiagram-v2\n    [*] --> sess_1\n    sess_1: Read [id 7] [q 5] [09#colon;00-10#colon;00]\n";
+        let parsed = parse_mermaid(content, date).unwrap();
+        assert_eq!(parsed[0].quantities, vec![qv("", 5)]);
+        let rendered = to_mermaid(&parsed);
+        assert!(rendered.contains("[q 5]"), "legacy form is preserved: {rendered}");
+        assert!(!rendered.contains('='), "no named form invented: {rendered}");
+    }
+
+    #[test]
+    fn a_session_without_quantities_has_no_q_tag() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let content = "stateDiagram-v2\n    [*] --> sess_1\n    sess_1: Read [id 7] [09#colon;00-10#colon;00]\n";
+        let parsed = parse_mermaid(content, date).unwrap();
+        assert!(parsed[0].quantities.is_empty());
+        assert!(!to_mermaid(&parsed).contains("[q"));
+    }
+
+    #[test]
+    fn a_malformed_q_tag_is_left_in_the_name_rather_than_guessed_at() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let content = "stateDiagram-v2\n    [*] --> sess_1\n    sess_1: Read [id 7] [q cards=x] [09#colon;00-10#colon;00]\n";
+        let parsed = parse_mermaid(content, date).unwrap();
+        assert!(parsed[0].quantities.is_empty());
+        assert!(parsed[0].name.contains("[q cards=x]"), "kept as text: {}", parsed[0].name);
+    }
 }

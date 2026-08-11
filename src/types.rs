@@ -110,7 +110,9 @@ pub struct Goal {
 /// - `goal_id`: the associated goal's id.
 /// - `kind`: whether this was a `Goal` or `Reward` session.
 /// - `start_at` / `end_at`: Unix timestamps in seconds (UTC).
-/// - `quantity`: optional quantity recorded during the session.
+/// - `quantities`: named measurements recorded during the session; an entry
+///   with an empty name is a legacy single quantity not yet resolved against
+///   its goal.
 #[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
@@ -118,8 +120,8 @@ pub struct Session {
     pub name: String,
     pub goal_id: u64,
     pub kind: SessionKind,
-    #[serde(default)]
-    pub quantity: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quantities: Vec<QuantityValue>,
     #[serde(default)]
     pub start_at: i64,
     #[serde(default)]

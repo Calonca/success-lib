@@ -168,7 +168,7 @@ pub fn merge_notes(base: &str, local: &str, remote: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::GoalStatus;
+    use crate::types::{GoalStatus, QuantityValue};
 
     fn session(goal_id: u64, start_at: i64, kind: SessionKind) -> Session {
         Session {
@@ -176,7 +176,7 @@ mod tests {
             name: format!("goal {goal_id}"),
             goal_id,
             kind,
-            quantity: None,
+            quantities: vec![],
             start_at,
             end_at: start_at + 600,
         }
@@ -216,12 +216,12 @@ mod tests {
     #[test]
     fn merge_sessions_local_wins_on_key_clash() {
         let mut local = session(1, 100, SessionKind::Goal);
-        local.quantity = Some(5);
+        local.quantities = vec![QuantityValue { name: String::new(), value: 5 }];
         let mut remote = session(1, 100, SessionKind::Goal);
-        remote.quantity = Some(9);
+        remote.quantities = vec![QuantityValue { name: String::new(), value: 9 }];
         let merged = merge_sessions(&[local], &[remote]);
         assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0].quantity, Some(5));
+        assert_eq!(merged[0].quantities, vec![QuantityValue { name: String::new(), value: 5 }]);
     }
 
     #[test]
