@@ -43,10 +43,18 @@ pub fn add_session(
     ensure_archive_structure(archive)?;
     if !quantities.is_empty() {
         let goal = get_goal(archive, goal_id)?;
-        if goal.quantity_names.is_empty() {
-            return Err(AppError::InvalidInput {
-                detail: format!("Goal {goal_id} is not quantifiable"),
-            });
+        let mut seen = std::collections::HashSet::new();
+        for q in &quantities {
+            if !goal.quantity_names.contains(&q.name) {
+                return Err(AppError::InvalidInput {
+                    detail: format!("Goal {goal_id} has no quantity named {:?}", q.name),
+                });
+            }
+            if !seen.insert(q.name.as_str()) {
+                return Err(AppError::InvalidInput {
+                    detail: format!("duplicate quantity {:?}", q.name),
+                });
+            }
         }
     }
     let day = start_at.with_timezone(&Local).date_naive();
@@ -84,9 +92,35 @@ pub fn list_day_sessions(archive: &Path, date: NaiveDate) -> Result<Vec<Session>
     ensure_archive_structure(archive)?;
     let mermaid_path = day_mermaid_path(archive, date);
     if let Some(content) = storage_io::read_to_string(archive, &mermaid_path)? {
-        return parse_mermaid(&content, date);
+        let mut sessions = parse_mermaid(&content, date)?;
+        resolve_legacy_quantities(archive, &mut sessions);
+        return Ok(sessions);
     }
     Ok(vec![])
+}
+
+/// Give a legacy bare `[q N]` its meaning: the first quantity name its goal
+/// declares. Goals are loaded at most once, and only when a legacy entry is
+/// present; a session whose goal is gone (or declares no names) keeps the
+/// empty-name sentinel rather than guessing.
+fn resolve_legacy_quantities(archive: &Path, sessions: &mut [Session]) {
+    let mut first_names: Option<HashMap<u64, String>> = None;
+    for s in sessions.iter_mut() {
+        let legacy = matches!(s.quantities.as_slice(), [q] if q.name.is_empty());
+        if !legacy {
+            continue;
+        }
+        let map = first_names.get_or_insert_with(|| {
+            crate::goals::all_goals(archive)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|g| g.quantity_names.first().cloned().map(|n| (g.id, n)))
+                .collect()
+        });
+        if let Some(n) = map.get(&s.goal_id) {
+            s.quantities[0].name = n.clone();
+        }
+    }
 }
 
 pub fn list_sessions_between_dates(
@@ -446,5 +480,58 @@ mod tests {
         let parsed = parse_mermaid(content, date).unwrap();
         assert!(parsed[0].quantities.is_empty());
         assert!(parsed[0].name.contains("[q cards=x]"), "kept as text: {}", parsed[0].name);
+    }
+
+    fn start_at(h: u32, m: u32) -> chrono::DateTime<chrono::Utc> {
+        chrono::Local
+            .with_ymd_and_hms(2026, 8, 11, h, m, 0)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    }
+
+    #[test]
+    fn an_undeclared_quantity_name_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = crate::goals::add_goal(dir.path(), "J", false, vec![], vec!["cards".into()]).unwrap();
+        let err = add_session(dir.path(), goal.id, "J", start_at(9, 0), 60, false,
+            vec![qv("pages", 3)]);
+        assert!(matches!(err, Err(AppError::InvalidInput { .. })));
+    }
+
+    #[test]
+    fn a_duplicate_quantity_name_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = crate::goals::add_goal(dir.path(), "J", false, vec![], vec!["cards".into()]).unwrap();
+        let err = add_session(dir.path(), goal.id, "J", start_at(9, 0), 60, false,
+            vec![qv("cards", 1), qv("cards", 2)]);
+        assert!(matches!(err, Err(AppError::InvalidInput { .. })));
+    }
+
+    #[test]
+    fn a_subset_of_declared_quantities_is_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = crate::goals::add_goal(dir.path(), "J", false, vec![],
+            vec!["cards".into(), "known".into()]).unwrap();
+        let s = add_session(dir.path(), goal.id, "J", start_at(9, 0), 60, false,
+            vec![qv("cards", 42)]).unwrap();
+        assert_eq!(s.quantities, vec![qv("cards", 42)]);
+    }
+
+    #[test]
+    fn reading_a_legacy_day_file_resolves_the_goals_first_quantity_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = crate::goals::add_goal(dir.path(), "Read", false, vec![], vec!["pages".into()]).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let content = format!(
+            "stateDiagram-v2\n    [*] --> sess_1\n    sess_1: Read [id {}] [q 5] [09#colon;00-10#colon;00]\n",
+            goal.id
+        );
+        let path = dir.path().join("graphs").join("2026-08-11.mmd");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &content).unwrap();
+        let sessions = list_day_sessions(dir.path(), date).unwrap();
+        assert_eq!(sessions[0].quantities, vec![qv("pages", 5)]);
+        // Reading must not rewrite the file.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
     }
 }
