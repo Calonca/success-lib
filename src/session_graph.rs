@@ -43,7 +43,7 @@ pub fn add_session(
     ensure_archive_structure(archive)?;
     if quantity.is_some() {
         let goal = get_goal(archive, goal_id)?;
-        if goal.quantity_name.is_none() {
+        if goal.quantity_names.is_empty() {
             return Err(AppError::InvalidInput {
                 detail: format!("Goal {goal_id} is not quantifiable"),
             });

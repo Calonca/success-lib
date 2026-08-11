@@ -14,8 +14,8 @@ fn list_goals_filters_by_status() {
     let temp = temp_archive();
     let archive = temp.path().to_str().unwrap().to_string();
 
-    let g1 = add_goal(archive.clone(), "Goal 1".into(), false, vec![], None).unwrap();
-    let g2 = add_goal(archive.clone(), "Goal 2".into(), false, vec![], None).unwrap();
+    let g1 = add_goal(archive.clone(), "Goal 1".into(), false, vec![], vec![]).unwrap();
+    let g2 = add_goal(archive.clone(), "Goal 2".into(), false, vec![], vec![]).unwrap();
     set_goal_status(archive.clone(), g1.id, GoalStatus::DONE).unwrap();
 
     let default_visible = list_goals(archive.clone(), None).unwrap();
@@ -39,8 +39,8 @@ fn search_goals_respects_status_filter() {
     let temp = temp_archive();
     let archive = temp.path().to_str().unwrap().to_string();
 
-    let g1 = add_goal(archive.clone(), "Archive Docs".into(), false, vec![], None).unwrap();
-    let g2 = add_goal(archive.clone(), "Build Prototype".into(), false, vec![], None).unwrap();
+    let g1 = add_goal(archive.clone(), "Archive Docs".into(), false, vec![], vec![]).unwrap();
+    let g2 = add_goal(archive.clone(), "Build Prototype".into(), false, vec![], vec![]).unwrap();
     set_goal_status(archive.clone(), g1.id, GoalStatus::DONE).unwrap();
     set_goal_status(archive.clone(), g2.id, GoalStatus::DOING).unwrap();
 
@@ -65,7 +65,7 @@ fn adding_session_moves_goal_to_doing() {
     let temp = temp_archive();
     let archive = temp.path().to_str().unwrap().to_string();
 
-    let goal = add_goal(archive.clone(), "Practice guitar".into(), false, vec![], None).unwrap();
+    let goal = add_goal(archive.clone(), "Practice guitar".into(), false, vec![], vec![]).unwrap();
     add_session(
         archive.clone(),
         goal.id,
@@ -88,8 +88,8 @@ fn trashed_goals_are_hidden_and_listtrash_works() {
     let temp = temp_archive();
     let archive = temp.path().to_str().unwrap().to_string();
 
-    let trashed = add_goal(archive.clone(), "Old goal".into(), false, vec![], None).unwrap();
-    let active = add_goal(archive.clone(), "New goal".into(), false, vec![], None).unwrap();
+    let trashed = add_goal(archive.clone(), "Old goal".into(), false, vec![], vec![]).unwrap();
+    let active = add_goal(archive.clone(), "New goal".into(), false, vec![], vec![]).unwrap();
     set_goal_trashed(archive.clone(), trashed.id, true).unwrap();
 
     let visible = list_goals(archive.clone(), None).unwrap();
@@ -109,7 +109,7 @@ fn reward_session_parsing_preserves_goal_id() {
     let temp = temp_archive();
     let archive = temp.path().to_str().unwrap().to_string();
 
-    let reward = add_goal(archive.clone(), "Ice Cream".into(), true, vec![], None).unwrap();
+    let reward = add_goal(archive.clone(), "Ice Cream".into(), true, vec![], vec![]).unwrap();
     let now = Utc::now();
     let date_iso = now.with_timezone(&chrono::Local).date_naive().format("%Y-%m-%d").to_string();
     

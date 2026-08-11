@@ -94,7 +94,7 @@ fn fresh_device_pulls_everything() {
     let (_tb, b) = device();
     let remote = MemoryRemote::new();
 
-    let goal = add_goal(a.clone(), "Learn Rust".into(), false, vec![], None).unwrap();
+    let goal = add_goal(a.clone(), "Learn Rust".into(), false, vec![], vec![]).unwrap();
     edit_note(a.clone(), goal.id, "read the book".into()).unwrap();
     add_session(a.clone(), goal.id, goal.name.clone(), Utc::now().timestamp(), 600, false, None)
         .unwrap();
@@ -118,7 +118,7 @@ fn same_day_sessions_from_both_devices_are_merged() {
     let (_tb, b) = device();
     let remote = MemoryRemote::new();
 
-    let goal = add_goal(a.clone(), "Practice".into(), false, vec![], None).unwrap();
+    let goal = add_goal(a.clone(), "Practice".into(), false, vec![], vec![]).unwrap();
     let base_ts = Utc::now().timestamp();
     add_session(a.clone(), goal.id, goal.name.clone(), base_ts, 600, false, None).unwrap();
     sync(&a, &remote);
@@ -148,7 +148,7 @@ fn conflicting_notes_keep_both_texts() {
     let (_tb, b) = device();
     let remote = MemoryRemote::new();
 
-    let goal = add_goal(a.clone(), "Write".into(), false, vec![], None).unwrap();
+    let goal = add_goal(a.clone(), "Write".into(), false, vec![], vec![]).unwrap();
     edit_note(a.clone(), goal.id, "original".into()).unwrap();
     sync(&a, &remote);
     sync(&b, &remote);
@@ -177,8 +177,8 @@ fn goals_added_offline_on_both_devices_converge() {
     sync(&a, &remote);
     sync(&b, &remote);
 
-    let goal_a = add_goal(a.clone(), "Goal from A".into(), false, vec![], None).unwrap();
-    let goal_b = add_goal(b.clone(), "Goal from B".into(), false, vec![], None).unwrap();
+    let goal_a = add_goal(a.clone(), "Goal from A".into(), false, vec![], vec![]).unwrap();
+    let goal_b = add_goal(b.clone(), "Goal from B".into(), false, vec![], vec![]).unwrap();
 
     sync(&a, &remote);
     sync(&b, &remote);
@@ -198,7 +198,7 @@ fn status_change_propagates_without_conflict() {
     let (_tb, b) = device();
     let remote = MemoryRemote::new();
 
-    let goal = add_goal(a.clone(), "Meditate".into(), false, vec![], None).unwrap();
+    let goal = add_goal(a.clone(), "Meditate".into(), false, vec![], vec![]).unwrap();
     sync(&a, &remote);
     sync(&b, &remote);
 
@@ -215,7 +215,7 @@ fn sync_state_is_never_uploaded() {
     let (_ta, a) = device();
     let remote = MemoryRemote::new();
 
-    let goal = add_goal(a.clone(), "Private".into(), false, vec![], None).unwrap();
+    let goal = add_goal(a.clone(), "Private".into(), false, vec![], vec![]).unwrap();
     edit_note(a.clone(), goal.id, "note".into()).unwrap();
     sync(&a, &remote);
     sync(&a, &remote); // second run: state files exist locally now
@@ -232,7 +232,7 @@ fn repeated_sync_is_idempotent() {
     let (_ta, a) = device();
     let remote = MemoryRemote::new();
 
-    add_goal(a.clone(), "Stable".into(), false, vec![], None).unwrap();
+    add_goal(a.clone(), "Stable".into(), false, vec![], vec![]).unwrap();
     sync(&a, &remote);
     let report = sync(&a, &remote);
     assert_eq!(report.pushed, 0);
@@ -246,7 +246,7 @@ fn concurrent_first_push_conflict_is_merged_not_fatal() {
     let interloper_yaml = "- id: 42\n  name: Interloper\n";
     let remote = RacingRemote::new(MemoryRemote::new(), "goals.yaml", interloper_yaml);
 
-    add_goal(a.clone(), "Mine".into(), false, vec![], None).unwrap();
+    add_goal(a.clone(), "Mine".into(), false, vec![], vec![]).unwrap();
     let report = sync_with(&a, &remote);
 
     assert_eq!(report.merged, 1, "push conflict must fall back to a merge");
@@ -294,7 +294,7 @@ fn goal_id_collision_with_concurrent_bump_keeps_note_and_sessions() {
 #[test]
 fn stray_files_are_ignored_and_do_not_break_sync() {
     let (_ta, a) = device();
-    add_goal(a.clone(), "Real".into(), false, vec![], None).unwrap();
+    add_goal(a.clone(), "Real".into(), false, vec![], vec![]).unwrap();
     std::fs::write(format!("{a}/.DS_Store"), [0u8, 0x9f, 0x92, 0x96]).unwrap();
     std::fs::create_dir_all(format!("{a}/notes")).unwrap();
     std::fs::write(format!("{a}/notes/draft.txt"), "not a note").unwrap();

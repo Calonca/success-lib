@@ -29,7 +29,10 @@ use ffi_types::AppError;
 
 pub use ffi_types::AppError as Error;
 pub use sync::engine::SyncReport;
-pub use types::{timestamp_to_date_iso, Goal, GoalStatus, Session, SessionKind};
+pub use types::{
+    timestamp_to_date_iso, valid_quantity_name, Goal, GoalStatus, QuantityValue, Session,
+    SessionKind,
+};
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "uniffi"))]
 uniffi::setup_scaffolding!();
@@ -94,14 +97,14 @@ pub fn add_goal(
     name: String,
     is_reward: bool,
     commands: Vec<String>,
-    quantity_name: Option<String>,
+    quantity_names: Vec<String>,
 ) -> Result<Goal, AppError> {
     goals::add_goal(
         Path::new(&archive_path),
         &name,
         is_reward,
         commands,
-        quantity_name,
+        quantity_names,
     )
 }
 

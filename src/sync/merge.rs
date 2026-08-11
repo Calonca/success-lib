@@ -190,7 +190,7 @@ mod tests {
             commands: vec![],
             status,
             trashed: false,
-            quantity_name: None,
+            quantity_names: vec![],
         }
     }
 
