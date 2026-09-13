@@ -17,3 +17,5 @@ target/
 .env
 out/
 .serena/
+# Local planning docs (superpowers specs/plans)
+docs/superpowers/

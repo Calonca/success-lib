@@ -50,8 +50,20 @@ pub fn list_trash(archive: &Path) -> Result<Vec<Goal>, AppError> {
     Ok(goals.into_iter().filter(|g| g.trashed).collect())
 }
 
-pub fn next_goal_id(goals: &[Goal]) -> u64 {
-    goals.iter().map(|g| g.id).max().unwrap_or(0) + 1
+/// Generate a random goal id that is non-zero and unused in `goals`.
+///
+/// Random (rather than sequential) ids keep goals created offline on
+/// different devices from colliding when archives are synced. Ids are
+/// capped at 2^53 - 1 so JavaScript consumers can represent them exactly
+/// as `Number`s.
+pub fn new_goal_id(goals: &[Goal]) -> u64 {
+    const MAX_JS_SAFE_ID: u64 = (1 << 53) - 1;
+    loop {
+        let id = rand::random::<u64>() & MAX_JS_SAFE_ID;
+        if id != 0 && !goals.iter().any(|g| g.id == id) {
+            return id;
+        }
+    }
 }
 
 pub fn add_goal(
@@ -59,10 +71,19 @@ pub fn add_goal(
     name: &str,
     is_reward: bool,
     commands: Vec<String>,
-    quantity_name: Option<String>,
+    quantity_names: Vec<String>,
 ) -> Result<Goal, AppError> {
+    for q in &quantity_names {
+        if !crate::types::valid_quantity_name(q) {
+            return Err(AppError::InvalidInput {
+                detail: format!(
+                    "invalid quantity name {q:?}: use lowercase ASCII, digits, '_' or '-'"
+                ),
+            });
+        }
+    }
     let mut goals = read_goals(archive)?;
-    let id = next_goal_id(&goals);
+    let id = new_goal_id(&goals);
     let goal = Goal {
         id,
         name: name.to_string(),
@@ -70,7 +91,7 @@ pub fn add_goal(
         commands,
         status: GoalStatus::TODO,
         trashed: false,
-        quantity_name,
+        quantity_names,
     };
     goals.push(goal.clone());
 
@@ -135,6 +156,13 @@ pub fn get_goal(archive: &Path, goal_id: u64) -> Result<Goal, AppError> {
     })
 }
 
+/// Every goal in the archive, trashed and DONE included. The legacy `[q N]`
+/// resolution needs the full list: a session may reference a goal that has
+/// since been finished or trashed.
+pub fn all_goals(archive: &Path) -> Result<Vec<Goal>, AppError> {
+    read_goals(archive)
+}
+
 pub fn search_goals(
     archive: &Path,
     query: &str,
@@ -196,4 +224,47 @@ pub fn search_goals(
         score_b.cmp(score_a)
     });
     Ok(scored.into_iter().map(|(_, g)| g).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn goal_with_id(id: u64) -> Goal {
+        Goal {
+            id,
+            name: format!("g{id}"),
+            is_reward: false,
+            commands: vec![],
+            status: GoalStatus::TODO,
+            trashed: false,
+            quantity_names: vec![],
+        }
+    }
+
+    #[test]
+    fn new_goal_id_is_nonzero_and_unused() {
+        let goals: Vec<Goal> = (1..=5).map(goal_with_id).collect();
+        for _ in 0..100 {
+            let id = new_goal_id(&goals);
+            assert_ne!(id, 0);
+            assert!(!goals.iter().any(|g| g.id == id));
+        }
+    }
+
+    #[test]
+    fn new_goal_id_varies() {
+        let ids: std::collections::HashSet<u64> =
+            (0..10).map(|_| new_goal_id(&[])).collect();
+        assert!(ids.len() > 1, "random ids should not repeat every time");
+    }
+
+    #[test]
+    fn add_goal_rejects_bad_quantity_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = add_goal(dir.path(), "g", false, vec![], vec!["Bad Name".into()]);
+        assert!(matches!(err, Err(AppError::InvalidInput { .. })));
+        let ok = add_goal(dir.path(), "g", false, vec![], vec!["cards".into(), "known".into()]);
+        assert_eq!(ok.unwrap().quantity_names, vec!["cards", "known"]);
+    }
 }

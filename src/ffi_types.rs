@@ -1,6 +1,6 @@
 use crate::storage_io::StorageIoError;
 
-#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Error))]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), derive(uniffi::Error))]
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("I/O error: {detail}")]
@@ -20,6 +20,17 @@ pub enum AppError {
 
     #[error("Parse error: {detail}")]
     Parse { detail: String },
+
+    #[error("Sync error: {detail}")]
+    Sync { detail: String },
+}
+
+impl From<crate::sync::remote::SyncError> for AppError {
+    fn from(e: crate::sync::remote::SyncError) -> Self {
+        AppError::Sync {
+            detail: e.to_string(),
+        }
+    }
 }
 
 impl From<StorageIoError> for AppError {

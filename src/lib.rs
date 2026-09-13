@@ -8,13 +8,17 @@ mod ffi_types;
 // Hide internal module pages from the crate-level docs; the re-exported
 // items are still visible at the crate root and will appear in the docs.
 #[doc(hidden)]
+pub mod backend;
+#[doc(hidden)]
 pub mod goals;
 #[doc(hidden)]
 pub mod notes;
 #[doc(hidden)]
 pub mod session_graph;
 #[doc(hidden)]
-mod storage_io;
+pub mod storage_io;
+#[doc(hidden)]
+pub mod sync;
 #[doc(hidden)]
 pub mod types;
 
@@ -24,9 +28,13 @@ use std::path::Path;
 use ffi_types::AppError;
 
 pub use ffi_types::AppError as Error;
-pub use types::{timestamp_to_date_iso, Goal, GoalStatus, Session, SessionKind};
+pub use sync::engine::SyncReport;
+pub use types::{
+    timestamp_to_date_iso, valid_quantity_name, Goal, GoalStatus, QuantityValue, Session,
+    SessionKind,
+};
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "uniffi"))]
 uniffi::setup_scaffolding!();
 
 /// List goals stored in the archive at `archive_path`.
@@ -35,7 +43,7 @@ uniffi::setup_scaffolding!();
 /// - `statuses`: optional filter to restrict returned goals by `GoalStatus`.
 ///
 /// Returns `Ok(Vec<Goal>)` on success or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn list_goals(
     archive_path: String,
     statuses: Option<Vec<GoalStatus>>,
@@ -46,7 +54,7 @@ pub fn list_goals(
 /// Return goals that are currently trashed
 ///
 /// Returns `Ok(Vec<Goal>)` on success or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn list_trash(archive_path: String) -> Result<Vec<Goal>, AppError> {
     goals::list_trash(Path::new(&archive_path))
 }
@@ -59,7 +67,7 @@ pub fn list_trash(archive_path: String) -> Result<Vec<Goal>, AppError> {
 /// - `sort_by_recent`: optional bool, defaults to true.
 ///
 /// Returns matching goals or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn search_goals(
     archive_path: String,
     query: String,
@@ -81,29 +89,32 @@ pub fn search_goals(
 /// - `name`: the goal name.
 /// - `is_reward`: whether this goal is considered a reward.
 /// - `commands`: associated commands for the goal.
+/// - `quantity_names`: names of the quantities sessions may record against
+///   this goal (empty for a non-quantifiable goal). Each name must match
+///   `[a-z0-9_-]+` — lowercase ASCII, digits, `_`, `-`.
 ///
 /// Returns the created `Goal` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn add_goal(
     archive_path: String,
     name: String,
     is_reward: bool,
     commands: Vec<String>,
-    quantity_name: Option<String>,
+    quantity_names: Vec<String>,
 ) -> Result<Goal, AppError> {
     goals::add_goal(
         Path::new(&archive_path),
         &name,
         is_reward,
         commands,
-        quantity_name,
+        quantity_names,
     )
 }
 
 /// Retrieve the note content for the goal identified by `goal_id`.
 ///
 /// Returns the note text as `String` or an `AppError` if retrieval fails.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn get_note(archive_path: String, goal_id: u64) -> Result<String, AppError> {
     notes::get_note(Path::new(&archive_path), goal_id)
 }
@@ -111,7 +122,7 @@ pub fn get_note(archive_path: String, goal_id: u64) -> Result<String, AppError> 
 /// Replace the note content for the goal `goal_id` with `content`.
 ///
 /// Returns `Ok(true)` on success or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn edit_note(
     archive_path: String,
     goal_id: u64,
@@ -124,7 +135,7 @@ pub fn edit_note(
 /// Update the `status` of the goal identified by `goal_id`.
 ///
 /// Returns the updated `Goal` on success or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn set_goal_status(
     archive_path: String,
     goal_id: u64,
@@ -138,7 +149,7 @@ pub fn set_goal_status(
 /// - `trashed`: `true` to move the goal to trash, `false` to restore it.
 ///
 /// Returns the updated `Goal` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn set_goal_trashed(
     archive_path: String,
     goal_id: u64,
@@ -152,9 +163,12 @@ pub fn set_goal_trashed(
 /// - `start_ts_secs`: Unix timestamp (seconds) for session start.
 /// - `duration_secs`: duration of the session in seconds.
 /// - `is_reward`: whether the session is tied to a reward goal.
+/// - `quantities`: named measurements recorded during the session. Every
+///   name must be declared in the goal's `quantity_names` (a subset is
+///   allowed, duplicates are not).
 ///
 /// Returns the created `Session` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn add_session(
     archive_path: String,
     goal_id: u64,
@@ -162,7 +176,7 @@ pub fn add_session(
     start_ts_secs: i64,
     duration_secs: u32,
     is_reward: bool,
-    quantity: Option<u32>,
+    quantities: Vec<QuantityValue>,
 ) -> Result<Session, AppError> {
     let start_at = Utc
         .timestamp_opt(start_ts_secs, 0)
@@ -178,7 +192,7 @@ pub fn add_session(
         start_at,
         duration_secs,
         is_reward,
-        quantity,
+        quantities,
     )
 }
 
@@ -187,7 +201,7 @@ pub fn add_session(
 /// - `date_iso`: date in `YYYY-MM-DD` format.
 ///
 /// Returns a vector of `Session` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn list_day_sessions(
     archive_path: String,
     date_iso: String,
@@ -201,13 +215,80 @@ pub fn list_day_sessions(
     session_graph::list_day_sessions(Path::new(&archive_path), date)
 }
 
+/// Synchronize the archive with a remote store (currently Supabase).
+///
+/// Offline-first: the local archive stays the source of truth and all other
+/// APIs keep working without network. This call pushes local changes,
+/// pulls remote changes, and three-way merges files changed on both sides
+/// (sessions are unioned, conflicting notes keep both versions).
+///
+/// - `remote_url`: Supabase project URL, e.g. `https://abc123.supabase.co`.
+/// - `api_key`: Supabase API key (see `docs/supabase-setup.sql`).
+/// - `archive_id`: identifier shared by all devices syncing this archive.
+///
+/// Returns a `SyncReport` with pushed/pulled/merged file counts, or an
+/// `AppError` on failure. Exported as an async function (a `suspend fun` in
+/// Kotlin, `async` in Swift).
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export(async_runtime = "tokio"))]
+pub async fn sync(
+    archive_path: String,
+    remote_url: String,
+    api_key: String,
+    archive_id: String,
+) -> Result<SyncReport, AppError> {
+    let backend = storage_io::backend_for(Path::new(&archive_path));
+    let remote = sync::supabase::SupabaseStore::new(&remote_url, &api_key, &archive_id);
+    sync::engine::sync_archive(&backend, &remote).await
+}
+
+/// Synchronize the archive using the Supabase configuration baked in at
+/// build time.
+///
+/// Identical to `sync()`, except the remote URL and API key come from the
+/// `.env` file that was present when this library was compiled (see
+/// `.env.example`). Use this when every app sharing one database should not
+/// need to know the Supabase credentials itself.
+///
+/// - `archive_path`: path to the archive directory.
+/// - `archive_id`: identifier shared by all devices syncing this archive.
+///
+/// Returns a `SyncReport` with pushed/pulled/merged file counts, or an
+/// `AppError` on failure. If the library was built without a `.env`, returns
+/// `AppError::InvalidInput`; call `sync()` with explicit credentials instead.
+/// Exported as an async function (a `suspend fun` in Kotlin, `async` in
+/// Swift).
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export(async_runtime = "tokio"))]
+pub async fn sync_default(
+    archive_path: String,
+    archive_id: String,
+) -> Result<SyncReport, AppError> {
+    let (Some(remote_url), Some(api_key)) = (
+        option_env!("SUCCESS_SUPABASE_URL"),
+        option_env!("SUCCESS_SUPABASE_ANON_KEY"),
+    ) else {
+        return Err(AppError::InvalidInput {
+            detail: "library was built without a Supabase config; pass the URL and key \
+                     explicitly via sync()"
+                .to_string(),
+        });
+    };
+
+    sync(
+        archive_path,
+        remote_url.to_string(),
+        api_key.to_string(),
+        archive_id,
+    )
+    .await
+}
+
 /// List sessions between two dates (inclusive).
 ///
 /// - `start_date_iso`: optional start date in `YYYY-MM-DD` format (defaults to 7 days ago).
 /// - `end_date_iso`: optional end date in `YYYY-MM-DD` format (defaults to today).
 ///
 /// Returns a vector of `Session` or an `AppError` on failure.
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "uniffi"), uniffi::export)]
 pub fn list_sessions_between_dates(
     archive_path: String,
     start_date_iso: Option<String>,

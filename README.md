@@ -26,6 +26,8 @@ Instead of reimplementing data structures for goals, sessions, and persistence, 
 The library is designed to be the backbone of your application. Whether you are building with **Tauri**, **React Native**, or **Compose Multiplatform**, integration is possible.
 Available APIs are shown in [lib.rs](https://github.com/Calonca/success-lib/blob/main/src/lib.rs).
 
+Goals can declare named quantities via `add_goal(archive_path, name, is_reward, commands, quantity_names)`, and sessions record them via `add_session(archive_path, goal_id, goal_name, start_ts_secs, duration_secs, is_reward, quantities)` — e.g. `cards=42 known=1520`; old single-quantity archives load unchanged.
+
 For example making a desktop app with Tauri can be done by adding the rust library and calling the functions inside it. For more examples look at other apps in the ecosystem section.
 
 ### Vibe Coding Prompt
@@ -35,6 +37,44 @@ Build a desktop application using Tauri that integrates https://github.com/Calon
 Look at https://github.com/Calonca/success-cli for a reference implementation.
 The app should be personalized for {create a scenario, e.g. a student that wants to study for 4 hours a day}
 ```
+
+---
+
+# Syncing Between Devices
+The library ships an offline-first sync engine: the local archive stays the
+source of truth (all APIs keep working without network), and an explicit
+`sync()` call exchanges changes with a remote store shared by your devices.
+
+### One-time server setup (Supabase)
+1. Create a free project at https://supabase.com.
+2. Run `docs/supabase-setup.sql` in the project's SQL editor.
+3. Note your project URL (`https://<ref>.supabase.co`) and API key.
+
+### Usage
+```rust
+// async: a suspend fun in Kotlin, async in Swift, a Future on wasm
+let report = successlib::sync(
+    archive_path,                      // same local archive as all other calls
+    "https://<ref>.supabase.co".into(), // remote_url
+    api_key,                           // Supabase API key
+    "my-archive".into(),               // archive_id: shared by your devices
+).await?;
+println!("pushed {} pulled {} merged {}", report.pushed, report.pulled, report.merged);
+```
+
+### How conflicts are handled
+Files changed on both devices since the last sync are merged, never
+overwritten:
+- **Sessions**: the union of both days' sessions is kept — a session recorded
+  on each device on the same day survives on both.
+- **Goals**: merged per goal; if the same goal was edited on both sides the
+  local edit wins.
+- **Notes**: if both devices edited the same note, both versions are kept in
+  the file separated by a conflict divider for you to tidy up.
+
+Any server that can store `(path, content, revision)` rows with a
+compare-and-set on `revision` can act as the remote — implement the
+`RemoteStore` trait (`src/sync/remote.rs`) to add one.
 
 ---
 

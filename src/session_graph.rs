@@ -8,7 +8,7 @@ use chrono::{
 use crate::ffi_types::AppError;
 use crate::goals::{get_goal, set_goal_status};
 use crate::storage_io;
-use crate::types::{GoalStatus, Session, SessionKind};
+use crate::types::{GoalStatus, QuantityValue, Session, SessionKind};
 
 pub fn ensure_archive_structure(archive: &Path) -> Result<(), AppError> {
     storage_io::ensure_archive_structure(archive)?;
@@ -38,15 +38,23 @@ pub fn add_session(
     start_at: DateTime<Utc>,
     duration_secs: u32,
     is_reward: bool,
-    quantity: Option<u32>,
+    quantities: Vec<QuantityValue>,
 ) -> Result<Session, AppError> {
     ensure_archive_structure(archive)?;
-    if quantity.is_some() {
+    if !quantities.is_empty() {
         let goal = get_goal(archive, goal_id)?;
-        if goal.quantity_name.is_none() {
-            return Err(AppError::InvalidInput {
-                detail: format!("Goal {goal_id} is not quantifiable"),
-            });
+        let mut seen = std::collections::HashSet::new();
+        for q in &quantities {
+            if !goal.quantity_names.contains(&q.name) {
+                return Err(AppError::InvalidInput {
+                    detail: format!("Goal {goal_id} has no quantity named {:?}", q.name),
+                });
+            }
+            if !seen.insert(q.name.as_str()) {
+                return Err(AppError::InvalidInput {
+                    detail: format!("duplicate quantity {:?}", q.name),
+                });
+            }
         }
     }
     let day = start_at.with_timezone(&Local).date_naive();
@@ -64,7 +72,7 @@ pub fn add_session(
         name: goal_name.to_string(),
         goal_id,
         kind,
-        quantity,
+        quantities,
         start_at: start_at.timestamp(),
         end_at: end_at.timestamp(),
     };
@@ -84,9 +92,35 @@ pub fn list_day_sessions(archive: &Path, date: NaiveDate) -> Result<Vec<Session>
     ensure_archive_structure(archive)?;
     let mermaid_path = day_mermaid_path(archive, date);
     if let Some(content) = storage_io::read_to_string(archive, &mermaid_path)? {
-        return parse_mermaid(&content, date);
+        let mut sessions = parse_mermaid(&content, date)?;
+        resolve_legacy_quantities(archive, &mut sessions);
+        return Ok(sessions);
     }
     Ok(vec![])
+}
+
+/// Give a legacy bare `[q N]` its meaning: the first quantity name its goal
+/// declares. Goals are loaded at most once, and only when a legacy entry is
+/// present; a session whose goal is gone (or declares no names) keeps the
+/// empty-name sentinel rather than guessing.
+fn resolve_legacy_quantities(archive: &Path, sessions: &mut [Session]) {
+    let mut first_names: Option<HashMap<u64, String>> = None;
+    for s in sessions.iter_mut() {
+        let legacy = matches!(s.quantities.as_slice(), [q] if q.name.is_empty());
+        if !legacy {
+            continue;
+        }
+        let map = first_names.get_or_insert_with(|| {
+            crate::goals::all_goals(archive)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|g| g.quantity_names.first().cloned().map(|n| (g.id, n)))
+                .collect()
+        });
+        if let Some(n) = map.get(&s.goal_id) {
+            s.quantities[0].name = n.clone();
+        }
+    }
 }
 
 pub fn list_sessions_between_dates(
@@ -156,7 +190,8 @@ fn next_session_id(nodes: &[Session], kind: SessionKind) -> String {
     }
 }
 
-fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>, AppError> {
+/// Parse a day file's mermaid content into sessions (used by storage and sync).
+pub(crate) fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>, AppError> {
     let mut nodes = Vec::new();
     let mut labels = HashMap::new();
     let mut edges: Vec<(String, String)> = Vec::new();
@@ -203,7 +238,7 @@ fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>, AppErro
     let mut cursor = start;
     while let Some(id) = cursor {
         if let Some(label) = labels.get(&id) {
-            let (name, goal_id, quantity, explicit_time) = split_label(label, date);
+            let (name, goal_id, quantities, explicit_time) = split_label(label, date);
             let clean_id = sanitize_id(&id);
             let kind = if clean_id.starts_with("rew_") {
                 SessionKind::Reward
@@ -217,7 +252,7 @@ fn parse_mermaid(content: &str, date: NaiveDate) -> Result<Vec<Session>, AppErro
                     name,
                     goal_id,
                     kind,
-                    quantity,
+                    quantities,
                     start_at: start_at.timestamp(),
                     end_at: end_at.timestamp(),
                 });
@@ -235,7 +270,7 @@ fn split_label(
 ) -> (
     String,
     u64,
-    Option<u32>,
+    Vec<QuantityValue>,
     Option<(DateTime<Utc>, DateTime<Utc>)>,
 ) {
     let (without_time, time_range) = match label.rsplit_once('[') {
@@ -247,7 +282,7 @@ fn split_label(
     };
 
     let mut goal_id = 0;
-    let mut quantity = None;
+    let mut quantities = Vec::new();
     let mut name = without_time.trim().to_string();
 
     loop {
@@ -267,12 +302,30 @@ fn split_label(
             }
         }
         if let Some(q_tail) = tag.strip_prefix('q') {
-            if let Ok(q_val) = q_tail
+            let body = q_tail
                 .trim()
-                .trim_start_matches(|c: char| c == ':' || c.is_whitespace())
-                .parse::<u32>()
-            {
-                quantity = Some(q_val);
+                .trim_start_matches(|c: char| c == ':' || c.is_whitespace());
+            if body.contains('=') {
+                let mut parsed = Vec::new();
+                let ok = body.split_whitespace().all(|pair| {
+                    match pair.split_once('=') {
+                        Some((qname, value)) if !qname.is_empty() => match value.parse::<u32>() {
+                            Ok(v) => {
+                                parsed.push(QuantityValue { name: qname.to_string(), value: v });
+                                true
+                            }
+                            Err(_) => false,
+                        },
+                        _ => false,
+                    }
+                });
+                if ok && !parsed.is_empty() {
+                    quantities = parsed;
+                    name = head.trim().to_string();
+                    continue;
+                }
+            } else if let Ok(v) = body.parse::<u32>() {
+                quantities = vec![QuantityValue { name: String::new(), value: v }];
                 name = head.trim().to_string();
                 continue;
             }
@@ -280,7 +333,7 @@ fn split_label(
         break;
     }
 
-    (name, goal_id, quantity, time_range)
+    (name, goal_id, quantities, time_range)
 }
 
 fn parse_time_range(range: &str, date: NaiveDate) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
@@ -316,17 +369,26 @@ fn sanitize_id(id: &str) -> String {
     id.replace('-', "_")
 }
 
-fn to_mermaid(nodes: &[Session]) -> String {
+/// Render sessions (already sorted by start time) as a day file's mermaid
+/// content (used by storage and sync).
+pub(crate) fn to_mermaid(nodes: &[Session]) -> String {
     let mut out = String::from("stateDiagram-v2\n");
     if let Some(first) = nodes.first() {
         out.push_str(&format!("    [*] --> {}\n", first.id));
     }
     for (i, n) in nodes.iter().enumerate() {
         let times = format_time_range_for_mermaid(n);
-        let qty = n
-            .quantity
-            .map(|v| format!(" [q {}]", v))
-            .unwrap_or_default();
+        let qty = match n.quantities.as_slice() {
+            [] => String::new(),
+            [q] if q.name.is_empty() => format!(" [q {}]", q.value),
+            qs => {
+                let mut sorted: Vec<&QuantityValue> = qs.iter().collect();
+                sorted.sort_by(|a, b| a.name.cmp(&b.name));
+                let body: Vec<String> =
+                    sorted.iter().map(|q| format!("{}={}", q.name, q.value)).collect();
+                format!(" [q {}]", body.join(" "))
+            }
+        };
         out.push_str(&format!(
             "    {}: {} [id {}]{} [{}]\n",
             n.id, n.name, n.goal_id, qty, times
@@ -352,4 +414,124 @@ fn format_time_range_for_mermaid(node: &Session) -> String {
     let start = hhmm_encoded(node.start_at);
     let end = hhmm_encoded(node.end_at);
     format!("{start}-{end}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::QuantityValue;
+
+    fn qv(name: &str, value: u32) -> QuantityValue {
+        QuantityValue { name: name.into(), value }
+    }
+
+    #[test]
+    fn named_quantities_render_sorted_and_round_trip() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let start = chrono::Local
+            .with_ymd_and_hms(2026, 8, 11, 9, 0, 0)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let session = Session {
+            id: "sess_1".into(),
+            name: "Japanese".into(),
+            goal_id: 123,
+            kind: SessionKind::Goal,
+            quantities: vec![qv("known", 1520), qv("cards", 42)],
+            start_at: start.timestamp(),
+            end_at: start.timestamp() + 1500,
+        };
+        let text = to_mermaid(&[session.clone()]);
+        assert!(
+            text.contains("[q cards=42 known=1520]"),
+            "sorted by name regardless of input order: {text}"
+        );
+        let parsed = parse_mermaid(&text, date).unwrap();
+        // Parsing the sorted rendering yields the canonical (sorted) order.
+        let mut expected = session;
+        expected.quantities.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(parsed, vec![expected]);
+    }
+
+    #[test]
+    fn legacy_bare_quantity_parses_and_round_trips_unchanged() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let content = "stateDiagram-v2\n    [*] --> sess_1\n    sess_1: Read [id 7] [q 5] [09#colon;00-10#colon;00]\n";
+        let parsed = parse_mermaid(content, date).unwrap();
+        assert_eq!(parsed[0].quantities, vec![qv("", 5)]);
+        let rendered = to_mermaid(&parsed);
+        assert!(rendered.contains("[q 5]"), "legacy form is preserved: {rendered}");
+        assert!(!rendered.contains('='), "no named form invented: {rendered}");
+    }
+
+    #[test]
+    fn a_session_without_quantities_has_no_q_tag() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let content = "stateDiagram-v2\n    [*] --> sess_1\n    sess_1: Read [id 7] [09#colon;00-10#colon;00]\n";
+        let parsed = parse_mermaid(content, date).unwrap();
+        assert!(parsed[0].quantities.is_empty());
+        assert!(!to_mermaid(&parsed).contains("[q"));
+    }
+
+    #[test]
+    fn a_malformed_q_tag_is_left_in_the_name_rather_than_guessed_at() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let content = "stateDiagram-v2\n    [*] --> sess_1\n    sess_1: Read [id 7] [q cards=x] [09#colon;00-10#colon;00]\n";
+        let parsed = parse_mermaid(content, date).unwrap();
+        assert!(parsed[0].quantities.is_empty());
+        assert!(parsed[0].name.contains("[q cards=x]"), "kept as text: {}", parsed[0].name);
+    }
+
+    fn start_at(h: u32, m: u32) -> chrono::DateTime<chrono::Utc> {
+        chrono::Local
+            .with_ymd_and_hms(2026, 8, 11, h, m, 0)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    }
+
+    #[test]
+    fn an_undeclared_quantity_name_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = crate::goals::add_goal(dir.path(), "J", false, vec![], vec!["cards".into()]).unwrap();
+        let err = add_session(dir.path(), goal.id, "J", start_at(9, 0), 60, false,
+            vec![qv("pages", 3)]);
+        assert!(matches!(err, Err(AppError::InvalidInput { .. })));
+    }
+
+    #[test]
+    fn a_duplicate_quantity_name_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = crate::goals::add_goal(dir.path(), "J", false, vec![], vec!["cards".into()]).unwrap();
+        let err = add_session(dir.path(), goal.id, "J", start_at(9, 0), 60, false,
+            vec![qv("cards", 1), qv("cards", 2)]);
+        assert!(matches!(err, Err(AppError::InvalidInput { .. })));
+    }
+
+    #[test]
+    fn a_subset_of_declared_quantities_is_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = crate::goals::add_goal(dir.path(), "J", false, vec![],
+            vec!["cards".into(), "known".into()]).unwrap();
+        let s = add_session(dir.path(), goal.id, "J", start_at(9, 0), 60, false,
+            vec![qv("cards", 42)]).unwrap();
+        assert_eq!(s.quantities, vec![qv("cards", 42)]);
+    }
+
+    #[test]
+    fn reading_a_legacy_day_file_resolves_the_goals_first_quantity_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = crate::goals::add_goal(dir.path(), "Read", false, vec![], vec!["pages".into()]).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+        let content = format!(
+            "stateDiagram-v2\n    [*] --> sess_1\n    sess_1: Read [id {}] [q 5] [09#colon;00-10#colon;00]\n",
+            goal.id
+        );
+        let path = dir.path().join("graphs").join("2026-08-11.mmd");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &content).unwrap();
+        let sessions = list_day_sessions(dir.path(), date).unwrap();
+        assert_eq!(sessions[0].quantities, vec![qv("pages", 5)]);
+        // Reading must not rewrite the file.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+    }
 }
